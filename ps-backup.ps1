@@ -130,7 +130,7 @@ param(
 			  ValueFromPipeline=$true,
 			  ParameterSetName="Backup",
 			  HelpMessage="Specifies the root path of the backup.")]
-   [string][ValidateScript({Test-Path -LiteralPath $_ -PathType Container})]$BackupRoot,
+   [string][ValidateScript({Test-Path -LiteralPath $_ -PathType Container -IsValid})]$BackupRoot,
    [Parameter(Mandatory=$false,
 			  ParameterSetName="Backup",
 			  ValueFromPipeline=$false,
