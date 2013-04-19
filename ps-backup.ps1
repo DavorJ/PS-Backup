@@ -37,7 +37,7 @@
 ## - Write warning if a include command didn't result in any backup. Same for exclude command.
 ## - Directory compare command set, based on hases.
 ## - Wrapper for Get-ChildItem to allow for long paths.
-## - Hardlink files in directory structure.
+## - Get-childItem should work on shadows, not on original drives, because in the meantime files could be added or deleted. Shadows are static.
 ##
 ## DISCUSSION
 #########################
@@ -119,8 +119,18 @@ param(
    [Alias('DEB')][switch]$DeleteExistingBackup=$false,
    [Parameter(Mandatory=$true,
 			  ValueFromPipeline=$true,
-			  HelpMessage="Specifies the path from which to make a hash table.")]
+			  HelpMessage="Specifies the source path.")]
    [string]$SourcePath,
+   [Parameter(Mandatory=$true,
+			  ValueFromPipeline=$true,
+			  ParameterSetName="Backup",
+			  HelpMessage="Specifies the list of files to be excluded.")]
+   [string][ValidateScript({Test-Path -LiteralPath $_ -PathType Leaf})]$ExclusionList,
+   [Parameter(Mandatory=$true,
+			  ValueFromPipeline=$true,
+			  ParameterSetName="Backup",
+			  HelpMessage="Specifies the root path of the backup.")]
+   [string][ValidateScript({Test-Path -LiteralPath $_ -PathType Container})]$BackupRoot,
    [Parameter(Mandatory=$false,
 			  ParameterSetName="Backup",
 			  ValueFromPipeline=$false,
@@ -133,20 +143,25 @@ param(
    [Parameter(Mandatory=$false,
  			  ParameterSetName="Backup",
 			  ValueFromPipeline=$True,
-			  HelpMessage="By default, copies are linked to previous backups.?")]
-   [string]$LinkToDirectory
+			  HelpMessage="By default, copies are linked to previous backups.")]
+   [string][ValidateScript({Test-Path -LiteralPath $_ -PathType Container})]$LinkToDirectory,
+   [Parameter(Mandatory=$false,
+ 			  ParameterSetName="Backup",
+			  ValueFromPipeline=$True,
+			  HelpMessage="By default, copies are linked to previous backups. Here you can specify a hashtable to link to.")]
+   [string][ValidateScript({Test-Path -LiteralPath $_ -PathType Leaf})]$LinkToHashtable
 )
 
 # System Variables for backup Procedure
 ###############################################################
 $date = Get-Date -Format yyyy-MM-dd;
-$backup_root = "W:\Backups\Server";
 $inclusion_file = $SourcePath.TrimEnd('\'); # wildcards can be used
-$exclusion_file = ".\exclude_list.txt"; # wildcards can be used
+$exclusion_file = $ExclusionList; # wildcards can be used
 # $tmp_path = Join-Path -Path ($myinvocation.MyCommand.Definition | split-path -parent) -ChildPath "tmp"; #tmp path used for storing junction
 $tmp_path = "W:\tmp"; # tmp path used for storing junction
 $text_color_default = $host.ui.RawUI.ForegroundColor;
-$backup_path = $backup_root + '\' + $env:computername + '\' + $date; # hashtable-path depends on those two sub-dirs! 
+# $backup_path = $BackupRoot + '\' + $env:computername + '\' + $date; # hashtable-path depends on those two sub-dirs! 
+$backup_path = $BackupRoot + '\' + $date; # hashtable-path depends on those two sub-dirs! 
 $hashtable_name = "ps-backup-hashtable.txt";
 
 # Variable declarations
@@ -159,6 +174,7 @@ $file_fail_counter = 0;
 $file_long_path_counter = 0;
 $copied_bytes = 0;
 $copied_readonly_bytes = 0;
+$linked_bytes = 0;
 $deleted_bytes = 0;
 $hashtable = @{};
 $hashtable_new = @{};
@@ -291,10 +307,11 @@ function copy_file ([string] $source, [string] $destination ) {
 }
 
 # Make hashtable from stored xml files
-function Make-HashTable ([string] $path, [System.Collections.Hashtable] $hash) {
+function Make-HashTable ([string] $path, [System.Collections.Hashtable] $hash, [string] $hashtable_name) {
 	# Hash tables are reference tyes, so no need to pass by reference.
-	foreach ($file in Get-ChildItem -Path $path -Include $hashtable_name -Recurse -Force -ErrorAction SilentlyContinue) {
+	foreach ($file in (Get-ChildItem -Path $path -Include $hashtable_name -Recurse -Force -ErrorAction SilentlyContinue | Sort-Object -Property FullName -Unique)) {
 		# In the hashtable the values are absolute paths.
+		Write-Debug "Importing hashtable from $file";
 		(Import-Clixml $file).GetEnumerator() | foreach { $hash[$_.Key] = (Split-Path -Parent $file.FullName) + $_.Value };
 	}
 }
@@ -325,7 +342,11 @@ if ($Backup) {
 		"Starting new instance of the script to make a hashtable for $LinkToDirectory.";
 		powershell -File """$($myinvocation.MyCommand.Definition)""" -MakeHashTable -SourcePath """$($LinkToDirectory)""" -NotShadowed;
 		if ($?) {"Continuing backup..."} else {"Script didn't succeed with hashtable making. Exiting script."; exit;};
-		Make-HashTable $LinkToDirectory $hashtable;
+		Make-HashTable $LinkToDirectory $hashtable $hashtable_name;
+	}
+	
+	if ($LinkToHashtable) {
+		Make-HashTable $LinkToHashtable $hashtable '*';
 	}
 
 	# Making backup folder
@@ -333,18 +354,18 @@ if ($Backup) {
 	New-Item -ItemType directory -Path $backup_path | Out-Null;
 
 	# Making hashtable from previous backups
-	Make-HashTable $backup_root $hashtable;
+	Make-HashTable $BackupRoot $hashtable $hashtable_name;
 	if ( $hashtable.count -eq 0 ) { Write-Warning "No previous hashtables found. Hard-linking will only work between files copied during this backup."; }
 
 	# Read inclusion and exclusion list
 	assert {Test-Path -LiteralPath $SourcePath -Type leaf} "When used as Backup, the SourcePath should point to the inclusion file.";
 	$sources = get-content $SourcePath | remove_comments | where {$_ -ne ""};
+	
+	$exclusion_patterns = get-content $exclusion_file | remove_comments | where {$_ -ne ""};
 }
 
-$exclusion_patterns = get-content $exclusion_file | remove_comments | where {$_ -ne ""};
-
 if ($MakeHashTable -or $HardlinkContents) {
-	assert {Test-Path -Path $SourcePath -PathType Container} "-SourcePath can only be a directory.";
+	assert {Test-Path -LiteralPath $SourcePath -PathType Container} "-SourcePath can only be a directory.";
 	$sources = $SourcePath;
 }
 
@@ -366,7 +387,9 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 		# We create a new shadow drive if there is no in the shadow array.
 		Write-Host "Making new shadow drive on partition $file_drive_letter." -ForegroundColor Magenta;
 		$newShadowID = (Get-WmiObject -List Win32_ShadowCopy).Create($file_drive_letter + ':\', "ClientAccessible").ShadowID;
+		assert {$newShadowID} "Shadowcopy not created. Admin rights given?";
 		$newShadow = Get-WmiObject -Class Win32_ShadowCopy -Filter "ID = '$newShadowID'";
+		assert {$newShadow} "Just creted shadowcopy could not be found: $($error[0])";
 		
 		# One can access a ShadowVolume through explorer via a special link, for example: \\localhost\W$\@GMT-2013.04.03-16.27.23\
 		# But the first time this has to be executed from the drive property screen, otherwise the link does not work,
@@ -424,7 +447,6 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 		$hash_shadow = [System.BitConverter]::ToString($md5.ComputeHash($hash));
 		$stream_shadow.Dispose();
 	}
-
 	
 	# Copy or hard link procedure.
 	if ($Backup -or $HardlinkContents) {
@@ -447,6 +469,7 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 						if ($Backup) {
 							$mklink_output = cmd /c mklink /H """$($file_destination_path)""" """$($file_existing.FullName)""" 2>&1;
 							assert { $LASTEXITCODE -eq 0 } "Making hard link with $($file_destination_path) on $($file_existing.FullName) failed with ERROR: $mklink_output.";
+							$linked_bytes += $file_shadow.length;
 						} elseif ($HardlinkContents) {
 							# This should be a transaction: delete + make link.
 							$file_shadow.Delete();
@@ -559,7 +582,7 @@ $DirErrors | Sort-Object -Property TargetObject -Unique | Foreach-Object {Write-
 
 # Summary
 if ($Backup) {
-	Write-Host "$file_counter files copied, from which $file_link_counter hard link. ($copied_bytes bytes of which $copied_readonly_bytes bytes readonly)" -ForegroundColor "DarkGreen";
+	Write-Host "$file_counter files copied, from which $file_link_counter hard link. ($copied_bytes bytes copied of which $copied_readonly_bytes bytes readonly, while $linked_bytes bytes linked.)" -ForegroundColor "DarkGreen";
 	Write-Host "$file_fail_counter files failed to copy. ($file_long_path_counter due to long path)" -ForegroundColor "Red";
 }
 if ($MakeHashTable) {
