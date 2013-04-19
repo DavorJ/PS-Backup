@@ -121,7 +121,7 @@ param(
 			  ValueFromPipeline=$true,
 			  HelpMessage="Specifies the source path.")]
    [string]$SourcePath,
-   [Parameter(Mandatory=$true,
+   [Parameter(Mandatory=$false,
 			  ValueFromPipeline=$true,
 			  ParameterSetName="Backup",
 			  HelpMessage="Specifies the list of files to be excluded.")]
@@ -197,7 +197,7 @@ function exclusion_filter ($property) {
 begin {
 	$pattern_array = @();
 	ForEach ($exclusion in $exclusion_patterns) {
-		$pattern_array += New-Object System.Management.Automation.WildcardPattern $exclusion;
+		if ($exclusion) { $pattern_array += New-Object System.Management.Automation.WildcardPattern $exclusion; }
 	}
 } process {
 	ForEach ($pattern in $pattern_array) {
@@ -361,7 +361,7 @@ if ($Backup) {
 	assert {Test-Path -LiteralPath $SourcePath -Type leaf} "When used as Backup, the SourcePath should point to the inclusion file.";
 	$sources = get-content $SourcePath | remove_comments | where {$_ -ne ""};
 	
-	$exclusion_patterns = get-content $exclusion_file | remove_comments | where {$_ -ne ""};
+	if ($exclusion_file) { $exclusion_patterns = get-content $exclusion_file | remove_comments | where {$_ -ne ""}; }
 }
 
 if ($MakeHashTable -or $HardlinkContents) {
