@@ -412,8 +412,8 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 	# Attributes can also be used, like ReparsePoint: See http://msdn.microsoft.com/en-us/library/system.io.fileattributes(lightweight).aspx
 	# Select-Object -Unique is needed because Get-ChildItem might give duplicate paths, depending on the sources.
 
-	$file_shadow = Get-Item -Force -LiteralPath $source_file_path;
-	assert {"FileInfo", "DirectoryInfo" -contains $file_shadow.gettype().name} "Unexpected filetype returned: $($file_shadow.gettype().name) for file $($source_file_path). Check Code";
+	$source_file = Get-Item -Force -LiteralPath $source_file_path;
+	assert {"FileInfo", "DirectoryInfo" -contains $source_file.gettype().name} "Unexpected filetype returned: $($source_file.gettype().name) for file $($source_file_path). Check Code";
 	
 	if ($Backup) {
 		# We build the backup destination path.
@@ -422,7 +422,7 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 		# New-PSDrive is useless here because it doesn't really shorten the path like cmd subst does. It just obfurscates the real
 		# length of the path. So we test the real paths first. 
 		# shorten_path function reduces the path length by making symlinks.
-		$file_destination_relative_path = '\' + $file_shadow.PSDrive.name + (Split-Path -NoQualifier -Path ($source_file_path -replace [Regex]::Escape($shadow[$file_shadow.PSDrive.name]), "$($file_shadow.PSDrive):"))
+		$file_destination_relative_path = '\' + $source_file.PSDrive.name + (Split-Path -NoQualifier -Path ($source_file_path -replace [Regex]::Escape($shadow[$source_file.PSDrive.name]), "$($source_file.PSDrive):"))
 		$file_destination_path = shorten_path ($backup_path + $file_destination_relative_path) $tmp_path;
 		$file_destination_parent_path = Split-Path -Parent -Path $file_destination_path;
 
@@ -436,12 +436,12 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 	}
 
 	# Compute hash of shadow and store it in hash_shadow variable
-	if ((-not $file_shadow.PSIsContainer) -and (-not $file_shadow.IsReadOnly)) { # Folders and Read-only files (see discussion for reasons) are never hard-linked, so no need for making hashes of them.
-		$stream_shadow = $file_shadow.OpenRead();
+	if ((-not $source_file.PSIsContainer) -and (-not $source_file.IsReadOnly)) { # Folders and Read-only files (see discussion for reasons) are never hard-linked, so no need for making hashes of them.
+		$stream_shadow = $source_file.OpenRead();
 		$hash = $md5.ComputeHash($stream_shadow);
-		$hash += [System.BitConverter]::GetBytes($file_shadow.LastWriteTimeUtc.GetHashCode());
-		$hash += [System.BitConverter]::GetBytes($file_shadow.CreationTimeUtc.GetHashCode());
-		$hash += [System.BitConverter]::GetBytes($file_shadow.attributes -match "Hidden");
+		$hash += [System.BitConverter]::GetBytes($source_file.LastWriteTimeUtc.GetHashCode());
+		$hash += [System.BitConverter]::GetBytes($source_file.CreationTimeUtc.GetHashCode());
+		$hash += [System.BitConverter]::GetBytes($source_file.attributes -match "Hidden");
 		# $hash_shadow = [System.BitConverter]::ToString($hash);
 		$hash_shadow = [System.BitConverter]::ToString($md5.ComputeHash($hash));
 		$stream_shadow.Dispose();
@@ -450,13 +450,13 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 	# Copy or hard link procedure.
 	if ($Backup -or $HardlinkContents) {
 		# Following if's are cases which it might be possible to make a hard link. If they fail, the file is copied.
-		if ((-not $hashtable.count -eq 0) -and (-not $file_shadow.PSIsContainer) -and (-not $file_shadow.IsReadOnly)) {
+		if ((-not $hashtable.count -eq 0) -and (-not $source_file.PSIsContainer) -and (-not $source_file.IsReadOnly)) {
 			if ($hashtable.ContainsKey($hash_shadow)) {
 				$file_existing = New-Object System.IO.FileInfo(shorten_path $hashtable[$hash_shadow] $tmp_path);
 				assert { $file_existing } "File referenced by hash from hash table doesn't exist. Recalculatre hashes.";
 				assert { $file_existing.FullName.length -le 259 } "Path of possible hard link too long! Fix code!";
-				if (($file_existing.LastWriteTimeUtc -eq $file_shadow.LastWriteTimeUtc) -and ($file_existing.CreationTimeUtc -eq $file_shadow.CreationTimeUtc) -and (($file_existing.attributes -match "Hidden") -eq ($file_shadow.attributes -match "Hidden"))) {
-					cmd /c fc /B """$($file_existing.FullName)""" """$($file_shadow.FullName)""" | Out-Null;
+				if (($file_existing.LastWriteTimeUtc -eq $source_file.LastWriteTimeUtc) -and ($file_existing.CreationTimeUtc -eq $source_file.CreationTimeUtc) -and (($file_existing.attributes -match "Hidden") -eq ($source_file.attributes -match "Hidden"))) {
+					cmd /c fc /B """$($file_existing.FullName)""" """$($source_file.FullName)""" | Out-Null;
 					if ($LASTEXITCODE -eq 0) { # The two files are binary equal.
 						# Making a symlink is not an option, because if the original is deleted, then the symlink will point to an invalid
 						# location. On the other hand, hard links all have the same attributes, such as the creation and modification dates.
@@ -468,15 +468,15 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 						if ($Backup) {
 							$mklink_output = cmd /c mklink /H """$($file_destination_path)""" """$($file_existing.FullName)""" 2>&1;
 							assert { $LASTEXITCODE -eq 0 } "Making hard link with $($file_destination_path) on $($file_existing.FullName) failed with ERROR: $mklink_output.";
-							$linked_bytes += $file_shadow.length;
+							$linked_bytes += $source_file.length;
 						} elseif ($HardlinkContents) {
 							# This should be a transaction: delete + make link.
 							assert {$NotShadowed -or $HardlinkContents} "We may only be here in certain conditions: like when explicitly stating one doesn't want to use shadow copy.";
-							$file_shadow.Delete();
-							# $file_shadow properties are cached, so we can reuse them.
-							$mklink_output = cmd /c mklink /H """$($file_shadow.FullName)""" """$($file_existing.FullName)""" 2>&1;
-							assert { $LASTEXITCODE -eq 0 } "Making hard link with $($file_shadow.FullName) on $($file_existing.FullName) failed with ERROR: $mklink_output.";
-							$deleted_bytes += $file_shadow.length;
+							$source_file.Delete();
+							# $source_file properties are cached, so we can reuse them.
+							$mklink_output = cmd /c mklink /H """$($source_file.FullName)""" """$($file_existing.FullName)""" 2>&1;
+							assert { $LASTEXITCODE -eq 0 } "Making hard link with $($source_file.FullName) on $($file_existing.FullName) failed with ERROR: $mklink_output.";
+							$deleted_bytes += $source_file.length;
 						}
 						" LINKED: $($source_file_path)";
 						$file_counter++;
@@ -486,27 +486,27 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 						# Possible reason for this might be that the original is a symlink, in which case fc reports it as "longer".
 						Write-Warning "HASH EQUAL, BINARY MISMATCH: $($source_file_path) has same hash key as $($file_existing.FullName), but fails binary comparison!";
 						if ($Backup) {
-							$copied_item = copy_file $file_shadow.FullName $file_destination_path;				
+							$copied_item = copy_file $source_file.FullName $file_destination_path;				
 							Write-Output " COPIED (BINARY MISMATCH): $($source_file_path)";
 						}
 					}
 				} else { # Hash found, but modification times/attributes differ, so file should be copied, not hard linked.
 					# Since mod/create/attribs are allready in the hash, this should never happen.
-					Write-Warning "HASH EQUAL, ATTRIBUTE MISMATCH: $($source_file_path) has same hash key as $($file_existing.FullName), but fails attribute comparison! $($file_existing.CreationTimeUtc) $($file_shadow.CreationTimeUtc) $($file_existing.LastWriteTimeUtc) $($file_shadow.LastWriteTimeUtc) $($file_existing.attributes) $($file_shadow.attributes)";
+					Write-Warning "HASH EQUAL, ATTRIBUTE MISMATCH: $($source_file_path) has same hash key as $($file_existing.FullName), but fails attribute comparison! $($file_existing.CreationTimeUtc) $($source_file.CreationTimeUtc) $($file_existing.LastWriteTimeUtc) $($source_file.LastWriteTimeUtc) $($file_existing.attributes) $($source_file.attributes)";
 					if ($Backup) {
-						$copied_item = copy_file $file_shadow.FullName $file_destination_path;
+						$copied_item = copy_file $source_file.FullName $file_destination_path;
 						Write-Output " COPIED (HASH EQUAL, ATTRIBUTE MISMATCH): $($source_file_path)";	
 					}
 				}
 			} else { # Hash not found in previous versions, so file can be copied.
 				if ($Backup) {
-					$copied_item = copy_file $file_shadow.FullName $file_destination_path;
+					$copied_item = copy_file $source_file.FullName $file_destination_path;
 					Write-Output " COPIED (NEW HASH): $($source_file_path)";
 				}
 			}
 		} else { # There is no old hastable, or the file is read only, or the source is a directory. 
 			if ($Backup) {
-				$copied_item = copy_file $file_shadow.FullName $file_destination_path;
+				$copied_item = copy_file $source_file.FullName $file_destination_path;
 				if ($copied_item.PSIsContainer) {
 				} else {
 					if ($copied_item.IsReadOnly) {
@@ -540,18 +540,18 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 	}
 	
 	# Update new hashtable
-	if ((-not $file_shadow.PSIsContainer) -and (-not $file_shadow.IsReadOnly)) {
+	if ((-not $source_file.PSIsContainer) -and (-not $source_file.IsReadOnly)) {
 		if ($Backup) {
 			$hashtable_new[$hash_shadow] = $file_destination_relative_path;
 			# Also update current hashtable so new files can be linked to it.
 			$hashtable[$hash_shadow] = $backup_path + $file_destination_relative_path;
 		}
 		if ($MakeHashTable -or $HardlinkContents) {
-			$hashtable_new[$hash_shadow] = $file_shadow.FullName -Replace [Regex]::Escape($SourcePath), "";
+			$hashtable_new[$hash_shadow] = $source_file.FullName -Replace [Regex]::Escape($SourcePath), "";
 		} 
 		if ($HardlinkContents) {
-			$hashtable_new[$hash_shadow] = $file_shadow.FullName -Replace [Regex]::Escape($SourcePath), "";
-			$hashtable[$hash_shadow] = $file_shadow.FullName;
+			$hashtable_new[$hash_shadow] = $source_file.FullName -Replace [Regex]::Escape($SourcePath), "";
+			$hashtable[$hash_shadow] = $source_file.FullName;
 		}
 	}
 	
