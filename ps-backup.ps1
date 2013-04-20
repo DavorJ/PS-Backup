@@ -38,6 +38,7 @@
 ## - Directory compare command set, based on hases.
 ## - Wrapper for Get-ChildItem to allow for long paths.
 ## - Get-childItem should work on shadows, not on original drives, because in the meantime files could be added or deleted. Shadows are static.
+## - Save inclusion and exclusion lists in backup.
 ##
 ## DISCUSSION
 #########################
@@ -189,7 +190,12 @@ $md5 = new-object -TypeName System.Security.Cryptography.MD5CryptoServiceProvide
 
 # Used for removing comments from $inclusion_file and $exclusion_file 
 filter remove_comments {
-	$_ -replace '(#|::|//).*?$', '' # remove all occurance of line-comments from piped items
+	$_ = $_ -replace '(#|::|//).*?$', '' # remove all occurance of line-comments from piped items
+	if ($_) {
+		assert { -not $_.StartsWith("*") } "Ambiguous path. Shouldn't be used.";
+		assert { Test-Path -Path $_ -IsValid } "Path $_ is not valid.";
+	}
+	return $_;
 };
 
 # used to filter out the files that shouldn't be backed up based on $exclusion_file.
@@ -369,6 +375,34 @@ if ($MakeHashTable -or $HardlinkContents) {
 	$sources = $SourcePath;
 }
 
+
+$drives = $sources | Split-Path -Qualifier | Sort-Object -Unique | foreach {$_ -replace ':', ''};
+foreach ($drive in $drives) {
+	# For the source we use a shadow copy of the file. For that we keep
+	# a hashtable of the drive letters and their corresponding ShadowID's.
+	if (-not $HardlinkContents -and (($Backup -or $MakeHashTable) -and -not $NotShadowed)) {
+		# We create a new shadow drive if there is no in the shadow array.
+		Write-Host "Making new shadow drive on partition $drive." -ForegroundColor Magenta;
+		$newShadowID = (Get-WmiObject -List Win32_ShadowCopy).Create($drive + ':\', "ClientAccessible").ShadowID;
+		assert {$newShadowID} "Shadowcopy not created. Admin rights given?";
+		$newShadow = Get-WmiObject -Class Win32_ShadowCopy -Filter "ID = '$newShadowID'";
+		assert {$newShadow} "Just creted shadowcopy could not be found: $($error[0])";
+		
+		# One can access a ShadowVolume through explorer via a special link, for example: \\localhost\W$\@GMT-2013.04.03-16.27.23\
+		# But the first time this has to be executed from the drive property screen, otherwise the link does not work,
+		# so we can not use it.
+		
+		$gmtDate = Get-Date -Date ([System.Management.Managementdatetimeconverter]::ToDateTime("$($newShadow.InstallDate)").ToUniversalTime()) -Format "'@GMT-'yyyy.MM.dd-HH.mm.ss";
+		$symlink = "$tmp_path\$drive$gmtDate";
+		$mklink_output = cmd /c mklink /D """$symlink""" """$($newShadow.DeviceObject)\""" 2>&1;
+		assert { $LASTEXITCODE -eq 0 } "Making link $symlink failed with ERROR: $mklink_output";
+		$shadow[$drive] = $symlink;				
+		
+		$sources = $sources -replace "$drive\:", $symlink;
+		$exclusion_patterns = $exclusion_patterns -replace "$drive\:", $symlink;
+	}
+}
+
 # Main loop
 # This is the iteration for each file that will be copied.
 ###############################################################
@@ -377,43 +411,8 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 	# Here -Force allows to get items that cannot otherwise not be accessed by the user, such as hidden or system files.
 	# Attributes can also be used, like ReparsePoint: See http://msdn.microsoft.com/en-us/library/system.io.fileattributes(lightweight).aspx
 	# Select-Object -Unique is needed because Get-ChildItem might give duplicate paths, depending on the sources.
-	
-	# Get some data from the $file. ($file (original) should not be used in this loop, only the shadowcopy of it!)
-	$file_drive_letter = (Split-Path -Qualifier -Path "$original_path") -replace ':', '';
 
-	# For the source we use a shadow copy of the file. For that we keep
-	# a hashtable of the drive letters and their corresponding ShadowID's.
-	if (-not $HardlinkContents -and ((($Backup -or $MakeHashTable) -and -not $NotShadowed) -and (-not $shadow[$file_drive_letter]))) {
-		# We create a new shadow drive if there is no in the shadow array.
-		Write-Host "Making new shadow drive on partition $file_drive_letter." -ForegroundColor Magenta;
-		$newShadowID = (Get-WmiObject -List Win32_ShadowCopy).Create($file_drive_letter + ':\', "ClientAccessible").ShadowID;
-		assert {$newShadowID} "Shadowcopy not created. Admin rights given?";
-		$newShadow = Get-WmiObject -Class Win32_ShadowCopy -Filter "ID = '$newShadowID'";
-		assert {$newShadow} "Just creted shadowcopy could not be found: $($error[0])";
-		
-		# One can access a ShadowVolume through explorer via a special link, for example: \\localhost\W$\@GMT-2013.04.03-16.27.23\
-		# But the first time this has to be executed from the drive property screen, otherwise the link does not work,
-		# so we can not use it.
-		# $gmtDate = Get-Date -Date ([System.Management.Managementdatetimeconverter]::ToDateTime("$($newShadow.InstallDate)").ToUniversalTime()) -Format "'@GMT-'yyyy.MM.dd-HH.mm.ss";
-		# $shadow[$file_drive_letter] = New-PSDrive -Name ($file_drive_letter + "_shadow" ) -PSProvider Filesystem -Root "\\localhost\$($file_drive_letter)`$\$gmtDate\";
-		
-		$gmtDate = Get-Date -Date ([System.Management.Managementdatetimeconverter]::ToDateTime("$($newShadow.InstallDate)").ToUniversalTime()) -Format "'@GMT-'yyyy.MM.dd-HH.mm.ss";
-		$symlink = "$tmp_path\$file_drive_letter$gmtDate";
-		# $symlink = "W:\$($file_drive_letter)l";
-		$mklink_output = cmd /c mklink /D """$symlink""" """$($newShadow.DeviceObject)\""" 2>&1;
-		assert { $LASTEXITCODE -eq 0 } "Making link $symlink failed with ERROR: $mklink_output";
-		$shadow[$file_drive_letter] = $symlink;				
-		
-		# echo $shadow[$file_drive_letter];
-	}
-	
-	if ($shadow[$file_drive_letter]) {
-		# Build shadow destination file and create FileInfo object for it.
-		$file_shadow = Get-Item -Force -LiteralPath (shorten_path ($shadow[$file_drive_letter] + (Split-Path -NoQualifier -Path $original_path)) $tmp_path);
-	} else {
-		assert {$NotShadowed -or $HardlinkContents} "We may only be here in certain conditions: like when explicitly stating one doesn't want to use shadow copy.";
-		$file_shadow = Get-Item -Force -LiteralPath $original_path;
-	}
+	$file_shadow = Get-Item -Force -LiteralPath $original_path;
 	assert {"FileInfo", "DirectoryInfo" -contains $file_shadow.gettype().name} "Unexpected filetype returned: $($file_shadow.gettype().name) for file $($original_path). Check Code";
 	
 	if ($Backup) {
@@ -423,13 +422,13 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 		# New-PSDrive is useless here because it doesn't really shorten the path like cmd subst does. It just obfurscates the real
 		# length of the path. So we test the real paths first. 
 		# shorten_path function reduces the path length by making symlinks.
-		$file_destination_relative_path = '\' + $file_drive_letter + (Split-Path -NoQualifier -Path $original_path)
+		$file_destination_relative_path = '\' + $file_shadow.PSDrive.name + (Split-Path -NoQualifier -Path ($original_path -replace [Regex]::Escape($shadow[$file_shadow.PSDrive.name]), "$($file_shadow.PSDrive):"))
 		$file_destination_path = shorten_path ($backup_path + $file_destination_relative_path) $tmp_path;
 		$file_destination_parent_path = Split-Path -Parent -Path $file_destination_path;
 
 		# Because Copy-Item and mklink do not work if the destination directory doesn't exist,
 		# we make sure to first make the directory.
-		If (-not (Test-Path -LiteralPath $file_destination_parent_path)) {
+		If (-not (Test-Path -LiteralPath $file_destination_parent_path)) { 
 			New-Item -ItemType directory -Path $file_destination_parent_path | Out-Null;
 			assert $? "Parent path $file_destination_parent_path was not created."
 		}
@@ -472,6 +471,7 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 							$linked_bytes += $file_shadow.length;
 						} elseif ($HardlinkContents) {
 							# This should be a transaction: delete + make link.
+							assert {$NotShadowed -or $HardlinkContents} "We may only be here in certain conditions: like when explicitly stating one doesn't want to use shadow copy.";
 							$file_shadow.Delete();
 							# $file_shadow properties are cached, so we can reuse them.
 							$mklink_output = cmd /c mklink /H """$($file_shadow.FullName)""" """$($file_existing.FullName)""" 2>&1;
