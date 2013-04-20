@@ -414,6 +414,7 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 
 	$source_file = Get-Item -Force -LiteralPath $source_file_path;
 	assert {"FileInfo", "DirectoryInfo" -contains $source_file.gettype().name} "Unexpected filetype returned: $($source_file.gettype().name) for file $($source_file_path). Check Code";
+	assert {$source_file.FullName -eq $source_file_path} "Paths not the same: $($source_file.FullName) not equal to $source_file_path. Might cause problems. Check code.";
 	
 	if ($Backup) {
 		# We build the backup destination path.
@@ -422,7 +423,13 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 		# New-PSDrive is useless here because it doesn't really shorten the path like cmd subst does. It just obfurscates the real
 		# length of the path. So we test the real paths first. 
 		# shorten_path function reduces the path length by making symlinks.
-		$file_destination_relative_path = '\' + $source_file.PSDrive.name + (Split-Path -NoQualifier -Path ($source_file_path -replace [Regex]::Escape($shadow[$source_file.PSDrive.name]), "$($source_file.PSDrive):"))
+		if ($NotShadowed) {
+			$original_file_path = $source_file_path;
+			$file_destination_relative_path = '\' + $source_file.PSDrive.name + (Split-Path -NoQualifier -Path $source_file_path);
+		} else {
+			$original_file_path = $source_file_path -replace [Regex]::Escape($shadow[$source_file.PSDrive.name]), "$($source_file.PSDrive):"
+			$file_destination_relative_path = '\' + $source_file.PSDrive.name + (Split-Path -NoQualifier -Path $original_file_path)
+		}
 		$file_destination_path = shorten_path ($backup_path + $file_destination_relative_path) $tmp_path;
 		$file_destination_parent_path = Split-Path -Parent -Path $file_destination_path;
 
@@ -478,30 +485,30 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 							assert { $LASTEXITCODE -eq 0 } "Making hard link with $($source_file.FullName) on $($file_existing.FullName) failed with ERROR: $mklink_output.";
 							$deleted_bytes += $source_file.length;
 						}
-						" LINKED: $($source_file_path)";
+						" LINKED: $($original_file_path)";
 						$file_counter++;
 						$file_link_counter++;
 						assert { -not $copied_item } "Copied_item variable still remains from last job: might cause probs. Check code!"; 
 					} else { # Binary comparison failed: files differ!
 						# Possible reason for this might be that the original is a symlink, in which case fc reports it as "longer".
-						Write-Warning "HASH EQUAL, BINARY MISMATCH: $($source_file_path) has same hash key as $($file_existing.FullName), but fails binary comparison!";
+						Write-Warning "HASH EQUAL, BINARY MISMATCH: $($original_file_path) has same hash key as $($file_existing.FullName), but fails binary comparison!";
 						if ($Backup) {
 							$copied_item = copy_file $source_file.FullName $file_destination_path;				
-							Write-Output " COPIED (BINARY MISMATCH): $($source_file_path)";
+							Write-Output " COPIED (BINARY MISMATCH): $($original_file_path)";
 						}
 					}
 				} else { # Hash found, but modification times/attributes differ, so file should be copied, not hard linked.
 					# Since mod/create/attribs are allready in the hash, this should never happen.
-					Write-Warning "HASH EQUAL, ATTRIBUTE MISMATCH: $($source_file_path) has same hash key as $($file_existing.FullName), but fails attribute comparison! $($file_existing.CreationTimeUtc) $($source_file.CreationTimeUtc) $($file_existing.LastWriteTimeUtc) $($source_file.LastWriteTimeUtc) $($file_existing.attributes) $($source_file.attributes)";
+					Write-Warning "HASH EQUAL, ATTRIBUTE MISMATCH: $($original_file_path) has same hash key as $($file_existing.FullName), but fails attribute comparison! $($file_existing.CreationTimeUtc) $($source_file.CreationTimeUtc) $($file_existing.LastWriteTimeUtc) $($source_file.LastWriteTimeUtc) $($file_existing.attributes) $($source_file.attributes)";
 					if ($Backup) {
 						$copied_item = copy_file $source_file.FullName $file_destination_path;
-						Write-Output " COPIED (HASH EQUAL, ATTRIBUTE MISMATCH): $($source_file_path)";	
+						Write-Output " COPIED (HASH EQUAL, ATTRIBUTE MISMATCH): $($original_file_path)";	
 					}
 				}
 			} else { # Hash not found in previous versions, so file can be copied.
 				if ($Backup) {
 					$copied_item = copy_file $source_file.FullName $file_destination_path;
-					Write-Output " COPIED (NEW HASH): $($source_file_path)";
+					Write-Output " COPIED (NEW HASH): $($original_file_path)";
 				}
 			}
 		} else { # There is no old hastable, or the file is read only, or the source is a directory. 
@@ -510,11 +517,11 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 				if ($copied_item.PSIsContainer) {
 				} else {
 					if ($copied_item.IsReadOnly) {
-						Write-Output " COPIED (READONLY): $($source_file_path)";
+						Write-Output " COPIED (READONLY): $($original_file_path)";
 						$file_readonly_counter++;
 						$copied_readonly_bytes += $copied_item.length;
 					} else {
-						Write-Output " COPIED: $($source_file_path)";
+						Write-Output " COPIED: $($original_file_path)";
 					}
 				}
 			}
@@ -524,7 +531,7 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 	if ($Backup) {
 		# Check for possible copy error.
 		if ($CopyErrors) {
-			Write-Error "ERROR copying $($source_file_path): $_";
+			Write-Error "ERROR copying $($original_file_path): $_";
 			$file_fail_counter++;
 			Clear-Item Variable:CopyErrors –ErrorAction SilentlyContinue;
 			continue MainLoop;
