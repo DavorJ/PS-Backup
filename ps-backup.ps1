@@ -447,7 +447,7 @@ if ($Backup) {
 
 if ($MakeHashTable -or $HardlinkContents) {
 	assert {Test-Path -LiteralPath $SourcePath -PathType Container} "-SourcePath can only be a directory.";
-	$source_patterns = $SourcePath;
+	$source_patterns = $SourcePath + '\*';
 }
 
 # For the source we use a shadow copy of the file. For that we keep
