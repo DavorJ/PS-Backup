@@ -346,6 +346,8 @@ function shorten_path ( [string] $path_relative, [string] $tmp_path ) {
 	# No suitable symlink so make new one and update junction
 	$path_symlink_length = ($tmp_path + '\' + "xxxxxxxx").length;
 	$path_sub = ""; # Because it is allready used in the upper half, and if it is not empty, we get nice errors...
+	# Explanation: the whole directory ($path_relative) is taken, and with each iteration, a directory node is taken and put in
+	# $path_sub. This is done until there is nothing left in $path_relative.
 	while ($path_relative -Match '([\\]{0,2}[^\\]{1,})(\\.{1,})') {
 		$path_sub += $matches[1];
 		$path_relative = $matches[2];
