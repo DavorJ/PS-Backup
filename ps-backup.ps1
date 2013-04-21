@@ -265,7 +265,7 @@ function exclusion_filter ($property) {
 		ForEach ($exclusion in $exclusion_patterns) {
 			if ($exclusion) { $e_pattern_array += New-Object System.Management.Automation.WildcardPattern $exclusion; }
 		}
-		ForEach ($inclusion in $sources) {
+		ForEach ($inclusion in $source_patterns) {
 			if ($inclusion) { $i_pattern_array += New-Object System.Management.Automation.WildcardPattern $inclusion; }
 		}
 	} 
@@ -440,21 +440,21 @@ if ($Backup) {
 
 	# Read inclusion and exclusion list
 	assert {Test-Path -LiteralPath $SourcePath -Type leaf} "When used as Backup, the SourcePath should point to the inclusion file.";
-	$sources = get-content $SourcePath | remove_comments | where {$_ -ne ""};
+	$source_patterns = get-content $SourcePath | remove_comments | where {$_ -ne ""};
 	
 	if ($ExclusionFile) { $exclusion_patterns = get-content $ExclusionFile | remove_comments | where {$_ -ne ""}; }
 }
 
 if ($MakeHashTable -or $HardlinkContents) {
 	assert {Test-Path -LiteralPath $SourcePath -PathType Container} "-SourcePath can only be a directory.";
-	$sources = $SourcePath;
+	$source_patterns = $SourcePath;
 }
 
 # For the source we use a shadow copy of the file. For that we keep
 # a hashtable of the drive letters and their corresponding symlinks in $shadow.
 if (-not $HardlinkContents -and (($Backup -or $MakeHashTable) -and -not $NotShadowed)) {
 	# First we make a small array of drive letters from the include_list.txt
-	$drives = $sources | Split-Path -Qualifier | Sort-Object -Unique | foreach {$_ -replace ':', ''};
+	$drives = $source_patterns | Split-Path -Qualifier | Sort-Object -Unique | foreach {$_ -replace ':', ''};
 	# Then we create a shadow drive for each of the drive letters.
 	foreach ($drive in $drives) {
 		Write-Host "Making new shadow drive on partition $drive." -ForegroundColor Magenta;
@@ -474,7 +474,7 @@ if (-not $HardlinkContents -and (($Backup -or $MakeHashTable) -and -not $NotShad
 		$shadow[$drive] = $symlink;				
 		
 		# We adjust the include_list sources so they point to the appropriate shadowed drives. 
-		$sources = $sources -replace "$drive\:", $symlink;
+		$source_patterns = $source_patterns -replace "$drive\:", $symlink;
 		$exclusion_patterns = $exclusion_patterns -replace "$drive\:", $symlink;
 	}
 }
@@ -483,7 +483,7 @@ if (-not $HardlinkContents -and (($Backup -or $MakeHashTable) -and -not $NotShad
 # This is the iteration for each file that will be copied.
 ###############################################################
 if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable..."} elseif ($HardlinkContents) {"Hardlinking contents..."};
-:MainLoop foreach ($source_file_path in ( $sources | foreach {$_ -replace '\\[^\\]*[\*].*', ''} |
+:MainLoop foreach ($source_file_path in ( $source_patterns | foreach {$_ -replace '\\[^\\]*[\*].*', ''} |
 	foreach { if (Test-Path -Path ( shorten_path $_ $tmp_path)) {$_} } | 
 	foreach { if (Test-Path -Path ( shorten_path $_ $tmp_path) -Type Leaf) {Split-Path -Path $_ -Parent;} else {$_;} } |
 	Get-LongChildItem | Sort-Object -Unique | exclusion_filter)) {
