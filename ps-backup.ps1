@@ -388,7 +388,7 @@ function copy_file ([string] $source, [string] $destination ) {
 }
 
 # Make hashtable from stored xml files
-function Make-HashTable ([string] $path, [System.Collections.Hashtable] $hash, [string] $hashtable_name) {
+function Make-HashTableFromXML ([string] $path, [System.Collections.Hashtable] $hash, [string] $hashtable_name) {
 	# Hash tables are reference tyes, so no need to pass by reference.
 	foreach ($file in (Get-ChildItem -Path $path -Include $hashtable_name -Recurse -Force -ErrorAction SilentlyContinue | Sort-Object -Property FullName -Unique)) {
 		# In the hashtable the values are absolute paths.
@@ -423,11 +423,11 @@ if ($Backup) {
 		"Starting new instance of the script to make a hashtable for $LinkToDirectory.";
 		powershell -File """$($myinvocation.MyCommand.Definition)""" -MakeHashTable -SourcePath """$($LinkToDirectory)""" -NotShadowed;
 		if ($?) {"Continuing backup..."} else {"Script didn't succeed with hashtable making. Exiting script."; exit;};
-		Make-HashTable $LinkToDirectory $hashtable $hashtable_name;
+		Make-HashTableFromXML $LinkToDirectory $hashtable $hashtable_name;
 	}
 	
 	if ($LinkToHashtable) {
-		Make-HashTable $LinkToHashtable $hashtable '*';
+		Make-HashTableFromXML $LinkToHashtable $hashtable '*';
 	}
 
 	# Making backup folder
@@ -435,7 +435,7 @@ if ($Backup) {
 	New-Item -ItemType directory -Path $backup_path | Out-Null;
 
 	# Making hashtable from previous backups
-	Make-HashTable $BackupRoot $hashtable $hashtable_name;
+	Make-HashTableFromXML $BackupRoot $hashtable $hashtable_name;
 	if ( $hashtable.count -eq 0 ) { Write-Warning "No previous hashtables found. Hard-linking will only work between files copied during this backup."; }
 
 	# Read inclusion and exclusion list
