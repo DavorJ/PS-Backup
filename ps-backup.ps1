@@ -23,21 +23,15 @@
 ##
 ## TODO
 ## - ShadowVolume access: curently there seems to be no way to access the SV directly through PowerShell
-## - Rewrite code to allow switches through dynamparam and param statements - and give error if there are unknown switces.
-## - Limit the script to files in the shadowcopy for safety.
 ## - Create hard and soft links through .NET code via Add-Type: http://social.technet.microsoft.com/Forums/en-US/winserverpowershell/thread/01f8e50e-20fa-4e57-a76c-a15c929c0f4a/
 ## - Require admin privileges to run, either whole script or parts where needed.
 ## - Show how many files were deleted when used with -delete-existing.
-## - Preserve creation time of copied file.
 ## - Write why hard link failed in log.
 ## - Problematic cases: 2 files, same hash, but different mod/creation times: only one is stored, the other will be copied every time. So matching should be done on hash and mod/creation time.
-## - Two switches: one for making a backup, other for making hastable from contents of a folder.
 ## - Store include and exlude lists in backup, and maybe a copy of the script for reference.
 ## - Write warning if a include command didn't result in any backup. Same for exclude command.
 ## - Directory compare command set, based on hases.
 ## - Possibly improve the long path problems in Get-ChildItem in MainLoop. DirErrors is now badly used.
-## - Wrapper for Get-ChildItem to allow for long paths.
-## - Save inclusion and exclusion lists in backup.
 ## - Keep directory modification dates.
 ##
 ## DISCUSSION
@@ -663,6 +657,9 @@ if ($Backup) {
 if ($MakeHashTable -or $HardlinkContents) {
 	Export-Clixml -Path "$SourcePath\$hashtable_name" -InputObject $hashtable_new;
 }
+
+if ($exclusion_patterns) {Write-Output $exclusion_patterns > "$($backup_path)\exclusion_patterns.txt";}
+if ($source_patterns) {Write-Output $source_patterns > "$($backup_path)\source_patterns.txt";}
 
 # Analyse $direrrors
 $DirErrors | Sort-Object -Property TargetObject -Unique | Foreach-Object {Write-Warning "$($_.CategoryInfo.Reason) on $($_.TargetObject). Items are not backed up."; $file_long_path_counter++; $file_fail_counter++;};
