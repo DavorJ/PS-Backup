@@ -19,7 +19,7 @@
 ##
 ## v0.1
 ## - first version
-## - backup of data specified in $inclusion_file and $exclusion_file
+## - backup of data specified in $inclusion_file and $ExclusionFile
 ##
 ## TODO
 ## - ShadowVolume access: curently there seems to be no way to access the SV directly through PowerShell
@@ -136,7 +136,7 @@ param(
 			  ValueFromPipeline=$true,
 			  ParameterSetName="Backup",
 			  HelpMessage="Specifies the list of files to be excluded.")]
-   [string][ValidateScript({Test-Path -LiteralPath $_ -PathType Leaf})]$ExclusionList,
+   [string][ValidateScript({Test-Path -LiteralPath $_ -PathType Leaf})]$ExclusionFile,
    [Parameter(Mandatory=$true,
 			  ValueFromPipeline=$true,
 			  ParameterSetName="Backup",
@@ -167,7 +167,6 @@ param(
 ###############################################################
 $date = Get-Date -Format yyyy-MM-dd;
 $inclusion_file = $SourcePath.TrimEnd('\'); # wildcards can be used
-$exclusion_file = $ExclusionList; # wildcards can be used
 # $tmp_path = Join-Path -Path ($myinvocation.MyCommand.Definition | split-path -parent) -ChildPath "tmp"; #tmp path used for storing junction
 $tmp_path = "W:\tmp"; # tmp path used for storing junction
 $text_color_default = $host.ui.RawUI.ForegroundColor;
@@ -248,7 +247,7 @@ Function Get-LongChildItem {
     }
 }
 
-# Used for removing comments from $inclusion_file and $exclusion_file 
+# Used for removing comments from $inclusion_file and $ExclusionFile 
 filter remove_comments {
 	$_ = $_ -replace '(#|::|//).*?$', '' # remove all occurance of line-comments from piped items
 	if ($_) {
@@ -258,7 +257,7 @@ filter remove_comments {
 	return $_;
 };
 
-# used to filter out the files that shouldn't be backed up based on $exclusion_file.
+# used to filter out the files that shouldn't be backed up based on $ExclusionFile.
 function exclusion_filter ($property) {
 	begin {
 		$e_pattern_array = @();
@@ -441,7 +440,7 @@ if ($Backup) {
 	assert {Test-Path -LiteralPath $SourcePath -Type leaf} "When used as Backup, the SourcePath should point to the inclusion file.";
 	$sources = get-content $SourcePath | remove_comments | where {$_ -ne ""};
 	
-	if ($exclusion_file) { $exclusion_patterns = get-content $exclusion_file | remove_comments | where {$_ -ne ""}; }
+	if ($ExclusionFile) { $exclusion_patterns = get-content $ExclusionFile | remove_comments | where {$_ -ne ""}; }
 }
 
 if ($MakeHashTable -or $HardlinkContents) {
