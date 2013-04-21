@@ -28,7 +28,6 @@
 ## - Create hard and soft links through .NET code via Add-Type: http://social.technet.microsoft.com/Forums/en-US/winserverpowershell/thread/01f8e50e-20fa-4e57-a76c-a15c929c0f4a/
 ## - Require admin privileges to run, either whole script or parts where needed.
 ## - Show how many files were deleted when used with -delete-existing.
-## - Possibly improve the long path problems in Get-ChildItem in MainLoop. DirErrors is now badly used.
 ## - Preserve creation time of copied file.
 ## - Write why hard link failed in log.
 ## - Problematic cases: 2 files, same hash, but different mod/creation times: only one is stored, the other will be copied every time. So matching should be done on hash and mod/creation time.
@@ -36,8 +35,8 @@
 ## - Store include and exlude lists in backup, and maybe a copy of the script for reference.
 ## - Write warning if a include command didn't result in any backup. Same for exclude command.
 ## - Directory compare command set, based on hases.
+## - Possibly improve the long path problems in Get-ChildItem in MainLoop. DirErrors is now badly used.
 ## - Wrapper for Get-ChildItem to allow for long paths.
-## - Get-childItem should work on shadows, not on original drives, because in the meantime files could be added or deleted. Shadows are static.
 ## - Save inclusion and exclusion lists in backup.
 ##
 ## DISCUSSION
@@ -86,6 +85,12 @@
 ## Source files are shadows of the originals. That is the default.
 ## .PARAMETER LinkToDirectory
 ## This will explicitely scan the directory prior to backup. It may take quite some time.
+##
+## .EXAMPLE
+## .\ps-backup.ps1 -Backup -SourcePath ".\include_list.txt" -BackupRoot "W:\Backups\Server"
+##
+## In this example we make backups of all the folders in the include_list.txt, and we back them up in W:\Backups\Server.
+##
 ##
 ## .NOTES
 ## See Discussion comment.
@@ -188,32 +193,92 @@ $md5 = new-object -TypeName System.Security.Cryptography.MD5CryptoServiceProvide
 # Functions
 ###############################################################
 
+Function Get-LongChildItem {
+# Long paths with robocopy: http://www.powershellmagazine.com/2012/07/24/jaap-brassers-favorite-powershell-tips-and-tricks/
+# I used the copde to build a wrapperlike Get-ChildItem cmdlet.
+	param(
+       [CmdletBinding()]
+       [Parameter(Position=0,Mandatory=$true,ValueFromPipeline=$true, ValueFromPipelineByPropertyName=$true)]
+       [string[]]$FolderPath
+   ) 
+ 
+    begin {
+        if (!(Test-Path -Path $(Join-Path $env:SystemRoot '\System32\robocopy.exe'))) {
+            write-error "Robocopy not found, please install robocopy"
+            return
+        }
+        $Results = @()
+    }
+  
+    process {
+        foreach ($Path in $FolderPath) {
+            $RoboOutput = robocopy $Path 'c:\doesnotexist' /L /E /B /NP /FP /NJH /NJS /R:0 /NS /NC | foreach {$_.trim()}
+			# /L :: List only - don't copy, timestamp or delete any files.
+			# /E :: copy subdirectories, including Empty ones.
+			# /B :: copy files in Backup mode. (bypasses ACL restrictions... strange.)
+			# /NP :: No Progress - don't display percentage copied.
+			# /FP :: include Full Pathname of files in the output.
+			# /NJH :: No Job Header.
+			# /NJS :: No Job Summary.
+			# /R:n :: number of Retries on failed copies: default 1 million.
+			# /NS :: No Size - don't log file sizes.
+			# /NC :: No Class - don't log file classes.
+			
+			# Robocopy outputs errors together with file log. An error looks like this:
+			# 2013/04/20 16:40:13 ERROR 3 (0x00000003) Scanning Source Directory w:\scripts\ps-backup\tmp\W@GMT-2013.04.04-21.41.11\
+			# We need to filter those somehow.
+			
+			$RoboOutput | foreach {
+				if (($_ -Match '.*ERROR\s[0-9]{1,}\s\(0x[0-F]{8}\).*') -or $Next_line_error_description) {
+					# work-around because the next line is robocop's error description.
+					if ($Next_line_error_description) {Write-Warning "ROBOCOPY: $roboerror $_"; $Next_line_error_description = $false} else {$roboerror = $_; $Next_line_error_description = $true};
+				} else {
+					if ($_) {$_}
+				}
+			};
+        }
+    }
+ 
+    end {
+    }
+}
+
 # Used for removing comments from $inclusion_file and $exclusion_file 
 filter remove_comments {
 	$_ = $_ -replace '(#|::|//).*?$', '' # remove all occurance of line-comments from piped items
 	if ($_) {
 		assert { -not $_.StartsWith("*") } "Ambiguous path. Shouldn't be used.";
-		assert { Test-Path -Path $_ -IsValid } "Path $_ is not valid.";
+		# assert { Test-Path -Path $_ -IsValid } "Path $_ is not valid."; # might contain wildcards...
 	}
 	return $_;
 };
 
 # used to filter out the files that shouldn't be backed up based on $exclusion_file.
 function exclusion_filter ($property) {
-begin {
-	$pattern_array = @();
-	ForEach ($exclusion in $exclusion_patterns) {
-		if ($exclusion) { $pattern_array += New-Object System.Management.Automation.WildcardPattern $exclusion; }
-	}
-} process {
-	ForEach ($pattern in $pattern_array) {
-		if ($pattern.IsMatch($_)) {
-		# if ($pattern.IsMatch($_.$property)) {
-			return;
+	begin {
+		$e_pattern_array = @();
+		$i_pattern_array = @();
+		ForEach ($exclusion in $exclusion_patterns) {
+			if ($exclusion) { $e_pattern_array += New-Object System.Management.Automation.WildcardPattern $exclusion; }
 		}
+		ForEach ($inclusion in $sources) {
+			if ($inclusion) { $i_pattern_array += New-Object System.Management.Automation.WildcardPattern $inclusion; }
+		}
+	} 
+	process {
+		ForEach ($pattern in $e_pattern_array) {
+			if ($pattern.IsMatch($_)) {
+				return;
+			}
+		}
+		ForEach ($pattern in $i_pattern_array) {
+			if ($pattern.IsMatch($_)) {
+				return $_;
+			}
+		}
+		return;
 	}
-	return $_;
-} end {}
+	end {}
 }
 
 # Simple assert function from http://poshcode.org/1942
@@ -255,9 +320,11 @@ function shorten_path ( [string] $path_relative, [string] $tmp_path ) {
 	# Requirements check
 	# Write-Warning "$($path_relative.length): $path_relative"
 	assert {$junction} "No junction array!";
+	assert {$tmp_path} "No tmp path given!";
+	$max_length = 248; # this is directory max length; for files it is 260.
 	
 	# First check whether the path must be shortened.
-	if ($path_relative.length -le 259) {
+	if ($path_relative.length -lt $max_length) {
 		Write-Debug "Path length: $($path_relative.length) chars."; 
 		return $path_relative;
 	}
@@ -266,8 +333,8 @@ function shorten_path ( [string] $path_relative, [string] $tmp_path ) {
 	$path_sub = $junction.keys | foreach { if ($path_relative -Like "$_*") {$_} } | Sort-Object -Descending -Property length | Select-Object -First 1;
 	if ($path_sub) {
 		$path_proposed = $path_relative -Replace [Regex]::Escape($path_sub), $junction[$path_sub];
-		if ($path_proposed.length -le 259) {
-			assert { Test-Path $junction[$path_sub] } "Assertion failed in junction path check.";
+		if ($path_proposed.length -lt $max_length) {
+			assert { Test-Path $junction[$path_sub] } "Assertion failed in junction path check $($junction[$path_sub]) for path $path_sub.";
 			return $path_proposed;
 		}
 	}
@@ -278,16 +345,18 @@ function shorten_path ( [string] $path_relative, [string] $tmp_path ) {
 	while ($path_relative -Match '([\\]{0,2}[^\\]{1,})(\\.{1,})') {
 		$path_sub += $matches[1];
 		$path_relative = $matches[2];
-		if ( ($path_symlink_length + $path_relative.length) -le 259 ) {
-			$junction[$path_sub] = $tmp_path + '\' + [Convert]::ToString($path_sub.gethashcode(), 16);
-			$mklink_output = cmd /c mklink /D """$($junction[$path_sub])""" """$path_sub""" 2>&1;
-			assert { $LASTEXITCODE -eq 0 } "Making link $($junction[$path_sub]) failed with ERROR: $mklink_output.";
+		if ( ($path_symlink_length + $path_relative.length) -lt $max_length ) {
+			$tmp_junction_name = $tmp_path + '\' + [Convert]::ToString($path_sub.gethashcode(), 16);
+			# $path_sub might be very large. We can not link to a too long path. So we also need to shorten it (i.e. recurse).
+			$mklink_output = cmd /c mklink /D """$tmp_junction_name""" """$(shorten_path $path_sub $tmp_path)""" 2>&1;
+			$junction[$path_sub] = $tmp_junction_name;
+			assert { $LASTEXITCODE -eq 0 } "Making link $($junction[$path_sub]) for long path $path_sub failed with ERROR: $mklink_output.";
 			return $junction[$path_sub] + $path_relative;
 		}
 	}
 	
 	# Path can not be shortened...
-	assert False "Path $path_relative not shortened. Check code!"
+	assert $False "Path $path_relative could not be shortened. Check code!"
 }
 
 # Copy function
@@ -296,7 +365,7 @@ function copy_file ([string] $source, [string] $destination ) {
 	assert { $source_file } "File ($source) to be copied doesn't exist!";
 	$copied_item = Copy-Item -LiteralPath $source -Destination $destination -PassThru –ErrorAction Continue –ErrorVariable CopyErrors;
 	
-	if ($copied_item.PSIsContainer) {
+	if ($copied_item -and $copied_item.PSIsContainer) {
 		# Copy-Item doesn't copy modification date on directories.
 	} else { # copied item is a file
 		# Copy-Item doesn't copy creation date on files.
@@ -375,7 +444,6 @@ if ($MakeHashTable -or $HardlinkContents) {
 	$sources = $SourcePath;
 }
 
-
 $drives = $sources | Split-Path -Qualifier | Sort-Object -Unique | foreach {$_ -replace ':', ''};
 foreach ($drive in $drives) {
 	# For the source we use a shadow copy of the file. For that we keep
@@ -407,14 +475,18 @@ foreach ($drive in $drives) {
 # This is the iteration for each file that will be copied.
 ###############################################################
 if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable..."} elseif ($HardlinkContents) {"Hardlinking contents..."};
-:MainLoop foreach ($source_file_path in ( Get-ChildItem -Recurse -Force -Path $sources –ErrorAction SilentlyContinue –ErrorVariable DirErrors |  foreach ($_) {$_.FullName} | Sort-Object -Unique | exclusion_filter)) {
+:MainLoop foreach ($source_file_path in ( $sources | foreach {$_ -replace '\\[^\\]*[\*].*', ''} |
+	foreach { if (Test-Path -Path ( shorten_path $_ $tmp_path)) {$_} } | 
+	foreach { if (Test-Path -Path ( shorten_path $_ $tmp_path) -Type Leaf) {Split-Path -Path $_ -Parent;} else {$_;} } |
+	Get-LongChildItem | Sort-Object -Unique | exclusion_filter)) {
 	# Here -Force allows to get items that cannot otherwise not be accessed by the user, such as hidden or system files.
 	# Attributes can also be used, like ReparsePoint: See http://msdn.microsoft.com/en-us/library/system.io.fileattributes(lightweight).aspx
 	# Select-Object -Unique is needed because Get-ChildItem might give duplicate paths, depending on the sources.
 
-	$source_file = Get-Item -Force -LiteralPath $source_file_path;
+	$source_file = Get-Item -Force -LiteralPath (shorten_path $source_file_path $tmp_path);
+	assert {$source_file} "File $(shorten_path $source_file_path $tmp_path) not created.";
 	assert {"FileInfo", "DirectoryInfo" -contains $source_file.gettype().name} "Unexpected filetype returned: $($source_file.gettype().name) for file $($source_file_path). Check Code";
-	assert {$source_file.FullName -eq $source_file_path} "Paths not the same: $($source_file.FullName) not equal to $source_file_path. Might cause problems. Check code.";
+	assert {$source_file.FullName -eq (shorten_path $source_file_path $tmp_path)} "Paths not the same: $($source_file.FullName) not equal to $(shorten_path $source_file_path $tmp_path). Might cause problems. Check code.";
 	
 	if ($Backup) {
 		# We build the backup destination path.
