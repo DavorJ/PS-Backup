@@ -38,6 +38,7 @@
 ## - Possibly improve the long path problems in Get-ChildItem in MainLoop. DirErrors is now badly used.
 ## - Wrapper for Get-ChildItem to allow for long paths.
 ## - Save inclusion and exclusion lists in backup.
+## - Keep directory modification dates.
 ##
 ## DISCUSSION
 #########################
@@ -91,6 +92,10 @@
 ##
 ## In this example we make backups of all the folders in the include_list.txt, and we back them up in W:\Backups\Server.
 ##
+## .EXAMPLE
+## .\ps-backup.ps1 -Backup -SourcePath ".\include_list.txt" -BackupRoot "W:\Backups\Server" -NotShadowed
+##
+## Same as the previous example, but now we do not use shadowed sources for backup making.
 ##
 ## .NOTES
 ## See Discussion comment.
@@ -444,12 +449,13 @@ if ($MakeHashTable -or $HardlinkContents) {
 	$sources = $SourcePath;
 }
 
-$drives = $sources | Split-Path -Qualifier | Sort-Object -Unique | foreach {$_ -replace ':', ''};
-foreach ($drive in $drives) {
-	# For the source we use a shadow copy of the file. For that we keep
-	# a hashtable of the drive letters and their corresponding ShadowID's.
-	if (-not $HardlinkContents -and (($Backup -or $MakeHashTable) -and -not $NotShadowed)) {
-		# We create a new shadow drive if there is no in the shadow array.
+# For the source we use a shadow copy of the file. For that we keep
+# a hashtable of the drive letters and their corresponding symlinks in $shadow.
+if (-not $HardlinkContents -and (($Backup -or $MakeHashTable) -and -not $NotShadowed)) {
+	# First we make a small array of drive letters from the include_list.txt
+	$drives = $sources | Split-Path -Qualifier | Sort-Object -Unique | foreach {$_ -replace ':', ''};
+	# Then we create a shadow drive for each of the drive letters.
+	foreach ($drive in $drives) {
 		Write-Host "Making new shadow drive on partition $drive." -ForegroundColor Magenta;
 		$newShadowID = (Get-WmiObject -List Win32_ShadowCopy).Create($drive + ':\', "ClientAccessible").ShadowID;
 		assert {$newShadowID} "Shadowcopy not created. Admin rights given?";
@@ -466,6 +472,7 @@ foreach ($drive in $drives) {
 		assert { $LASTEXITCODE -eq 0 } "Making link $symlink failed with ERROR: $mklink_output";
 		$shadow[$drive] = $symlink;				
 		
+		# We adjust the include_list sources so they point to the appropriate shadowed drives. 
 		$sources = $sources -replace "$drive\:", $symlink;
 		$exclusion_patterns = $exclusion_patterns -replace "$drive\:", $symlink;
 	}
