@@ -466,9 +466,10 @@ if ($MakeHashTable -or $HardlinkContents) {
 
 # For the source we use a shadow copy of the file. For that we keep
 # a hashtable of the drive letters and their corresponding symlinks in $shadow.
+# We also make a shadow on the $BackupRoot so we can revert if somehing goes wrong.
 if (-not $HardlinkContents -and (($Backup -or $MakeHashTable) -and -not $NotShadowed)) {
 	# First we make a small array of drive letters from the include_list.txt
-	$drives = $source_patterns | Split-Path -Qualifier | Sort-Object -Unique | foreach {$_ -replace ':', ''};
+	$drives = ($source_patterns, $BackupRoot) | Split-Path -Qualifier | Sort-Object -Unique | foreach {$_ -replace ':', ''} | where {$_};
 	# Then we create a shadow drive for each of the drive letters.
 	foreach ($drive in $drives) {
 		Write-Host "Making new shadow drive on partition $drive." -ForegroundColor Magenta;
@@ -574,7 +575,7 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 							$linked_bytes += $source_file.length;
 						} elseif ($HardlinkContents) {
 							# This should be a transaction: delete + make link.
-							assert {$file_existing.Exists} "File $(file_existing.FullName) doesn't exist... check code!";
+							assert {$file_existing.Exists} "File $($file_existing.FullName) doesn't exist... check code!";
 							$source_file.Delete();
 							# $source_file properties are cached, so we can reuse them.
 							$mklink_output = cmd /c mklink /H """$($source_file.FullName)""" """$($file_existing.FullName)""" 2>&1;
