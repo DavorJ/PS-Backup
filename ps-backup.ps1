@@ -321,65 +321,69 @@ param(
 
 # Returns a shortened path made with junctions to circumvent 260 path length in win32 API and so PowerShell
 function Shorten-Path {
-[CmdletBinding()]
-param( 
-	[Parameter(Mandatory=$true,
-			   Position=0,
-			   ValueFromPipeline=$true,
-			   HelpMessage="Path to shorten.")]
-    [string]$Path,
-    [Parameter(Mandatory=$true,
-	 		   Position=1,
-			   ValueFromPipeline=$false,
-			   HelpMessage="Path to existing temp directory.")]
-    [string][ValidateScript({Test-Path -LiteralPath $_ -PathType Container})]$TempPath    
-)
-begin {
-	# Requirements check
-	if (-not $script:junction) {$script:junction = @{};}
-	assert {$junction} "No junction hash table!";
-	$max_length = 248; # this is directory max length; for files it is 260.
-}
-process {
-	# First check whether the path must be shortened.
-	# Write-Warning "$($path.length): $path"
-	if ($Path.length -lt $max_length) {
-		Write-Debug "Path length: $($Path.length) chars."; 
-		return $Path;
+	[CmdletBinding()]
+	param( 
+		[Parameter(Mandatory=$true,
+				   Position=0,
+				   ValueFromPipeline=$true,
+				   HelpMessage="Path to shorten.")]
+		[string]$Path,
+		[Parameter(Mandatory=$true,
+				   Position=1,
+				   ValueFromPipeline=$false,
+				   HelpMessage="Path to existing temp directory.")]
+		[string][ValidateScript({Test-Path -LiteralPath $_ -PathType Container})]$TempPath    
+	)
+	
+	begin {
+		# Requirements check
+		if (-not $script:junction) {$script:junction = @{};}
+		assert {$junction} "No junction hash table!";
+		$max_length = 248; # this is directory max length; for files it is 260.
 	}
 	
-	# Check if there is allready a suitable symlink	
-	$path_sub = $junction.keys | foreach { if ($Path -Like "$_*") {$_} } | Sort-Object -Descending -Property length | Select-Object -First 1;
-	if ($path_sub) {
-		$path_proposed = $Path -Replace [Regex]::Escape($path_sub), $junction[$path_sub];
-		if ($path_proposed.length -lt $max_length) {
-			assert { Test-Path $junction[$path_sub] } "Assertion failed in junction path check $($junction[$path_sub]) for path $path_sub.";
-			return $path_proposed;
+	process {
+		# First check whether the path must be shortened.
+		# Write-Warning "$($path.length): $path"
+		if ($Path.length -lt $max_length) {
+			Write-Debug "Path length: $($Path.length) chars."; 
+			return $Path;
 		}
-	}
-	
-	# No suitable symlink so make new one and update junction
-	$path_symlink_length = ($TempPath + '\' + "xxxxxxxx").length;
-	$path_sub = ""; # Because it is allready used in the upper half, and if it is not empty, we get nice errors...
-	$path_relative = $Path;
-	# Explanation: the whole directory ($Path) is taken, and with each iteration, a directory node is taken from
-	# $path_relative and put in $path_sub. This is done until there is nothing left in $path_relative.
-	while ($path_relative -Match '([\\]{0,2}[^\\]{1,})(\\.{1,})') {
-		$path_sub += $matches[1];
-		$path_relative = $matches[2];
-		if ( ($path_symlink_length + $path_relative.length) -lt $max_length ) {
-			$tmp_junction_name = $TempPath + '\' + [Convert]::ToString($path_sub.gethashcode(), 16);
-			# $path_sub might be very large. We can not link to a too long path. So we also need to shorten it (i.e. recurse).
-			$mklink_output = cmd /c mklink /D """$tmp_junction_name""" """$(Shorten-Path $path_sub $TempPath)""" 2>&1;
-			$junction[$path_sub] = $tmp_junction_name;
-			assert { $LASTEXITCODE -eq 0 } "Making link $($junction[$path_sub]) for long path $path_sub failed with ERROR: $mklink_output.";
-			return $junction[$path_sub] + $path_relative;
+		
+		# Check if there is allready a suitable symlink	
+		$path_sub = $junction.keys | foreach { if ($Path -Like "$_*") {$_} } | Sort-Object -Descending -Property length | Select-Object -First 1;
+		if ($path_sub) {
+			$path_proposed = $Path -Replace [Regex]::Escape($path_sub), $junction[$path_sub];
+			if ($path_proposed.length -lt $max_length) {
+				assert { Test-Path $junction[$path_sub] } "Assertion failed in junction path check $($junction[$path_sub]) for path $path_sub.";
+				return $path_proposed;
+			}
 		}
-	}
+		
+		# No suitable symlink so make new one and update junction
+		$path_symlink_length = ($TempPath + '\' + "xxxxxxxx").length;
+		$path_sub = ""; # Because it is allready used in the upper half, and if it is not empty, we get nice errors...
+		$path_relative = $Path;
+		# Explanation: the whole directory ($Path) is taken, and with each iteration, a directory node is taken from
+		# $path_relative and put in $path_sub. This is done until there is nothing left in $path_relative.
+		while ($path_relative -Match '([\\]{0,2}[^\\]{1,})(\\.{1,})') {
+			$path_sub += $matches[1];
+			$path_relative = $matches[2];
+			if ( ($path_symlink_length + $path_relative.length) -lt $max_length ) {
+				$tmp_junction_name = $TempPath + '\' + [Convert]::ToString($path_sub.gethashcode(), 16);
+				# $path_sub might be very large. We can not link to a too long path. So we also need to shorten it (i.e. recurse).
+				$mklink_output = cmd /c mklink /D """$tmp_junction_name""" """$(Shorten-Path $path_sub $TempPath)""" 2>&1;
+				$junction[$path_sub] = $tmp_junction_name;
+				assert { $LASTEXITCODE -eq 0 } "Making link $($junction[$path_sub]) for long path $path_sub failed with ERROR: $mklink_output.";
+				return $junction[$path_sub] + $path_relative;
+			}
+		}
+		
+		# Path can not be shortened...
+		assert $False "Path $path_relative could not be shortened. Check code!"
+	} 
 	
-	# Path can not be shortened...
-	assert $False "Path $path_relative could not be shortened. Check code!"
-} end {}
+	end {}
 }
 
 # Copy function
