@@ -33,7 +33,6 @@
 ## - Directory compare command set, based on hases.
 ## - Possibly improve the long path problems in Get-ChildItem in MainLoop. DirErrors is now badly used.
 ## - Keep directory modification dates.
-## - In case of first backup: note to set the security descriptors right: only read rights for specific users, admins have full rights.
 ##
 ## DISCUSSION
 #########################
@@ -411,6 +410,10 @@ if (-not (Test-Path $tmp_path)) {
 # Preparing system
 ###############################################################
 if ($Backup) {
+	if ( -not (Test-Path ($BackupRoot + '\*')) ) {
+		Write-Warning "First time backup. Make sure to set the security descriptors right: only read rights for specific users, admins have full rights.";
+	}
+
 	if (Test-Path -LiteralPath $backup_path) {
 		if ($DeleteExistingBackup) {
 			# DELETE PREVIOUS BACKUP if it exists.
@@ -546,8 +549,8 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 		# Following if's are cases which it might be possible to make a hard link. If they fail, the file is copied.
 		if ((-not $hashtable.count -eq 0) -and (-not $source_file.PSIsContainer) -and (-not $source_file.IsReadOnly)) {
 			if ($hashtable.ContainsKey($hash_shadow)) {
+				assert { Test-Path (shorten_path $hashtable[$hash_shadow] $tmp_path) -Type leaf } "File $($hashtable[$hash_shadow]) referenced by hash from hash table doesn't exist. Recalculatre hashes.";
 				$file_existing = New-Object System.IO.FileInfo(shorten_path $hashtable[$hash_shadow] $tmp_path);
-				assert { $file_existing } "File referenced by hash from hash table doesn't exist. Recalculatre hashes.";
 				assert { $file_existing.FullName.length -le 259 } "Path of possible hard link too long! Fix code!";
 				if (($file_existing.LastWriteTimeUtc -eq $source_file.LastWriteTimeUtc) -and ($file_existing.CreationTimeUtc -eq $source_file.CreationTimeUtc) -and (($file_existing.attributes -match "Hidden") -eq ($source_file.attributes -match "Hidden"))) {
 					cmd /c fc /B """$($file_existing.FullName)""" """$($source_file.FullName)""" | Out-Null;
