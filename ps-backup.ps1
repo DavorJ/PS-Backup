@@ -33,6 +33,7 @@
 ## - Directory compare command set, based on hases.
 ## - Possibly improve the long path problems in Get-ChildItem in MainLoop. DirErrors is now badly used.
 ## - Keep directory modification dates.
+## - In case of first backup: note to set the security descriptors right: only read rights for specific users, admins have full rights.
 ##
 ## DISCUSSION
 #########################
@@ -90,6 +91,12 @@
 ## .\ps-backup.ps1 -Backup -SourcePath ".\include_list.txt" -BackupRoot "W:\Backups\Server" -NotShadowed
 ##
 ## Same as the previous example, but now we do not use shadowed sources for backup making.
+##
+## .EXAMPLE
+## .\ps-backup.ps1 -MakeHashTable -SourcePath "W:\Backups\Server" -NotShadowed
+##
+## Here we will make a hashtable of contents in "W:\Backups\Server" and export it in the root of the directory.
+## Next time a backup is made in "W:\Backups\Server" or higher, this table will be used for linking files.
 ##
 ## .NOTES
 ## See Discussion comment.
@@ -653,13 +660,14 @@ $junction.clear();
 # save hashtable_new
 if ($Backup) {
 	Export-Clixml -Path "$backup_path\$hashtable_name" -InputObject $hashtable_new;
+	if ($exclusion_patterns) {Write-Output $exclusion_patterns > "$($backup_path)\exclusion_patterns.txt";}
+	if ($source_patterns) {Write-Output $source_patterns > "$($backup_path)\source_patterns.txt";}
 } 
 if ($MakeHashTable -or $HardlinkContents) {
 	Export-Clixml -Path "$SourcePath\$hashtable_name" -InputObject $hashtable_new;
+	if ($exclusion_patterns) {Write-Output $exclusion_patterns > "$($SourcePath)\exclusion_patterns.txt";}
+	if ($source_patterns) {Write-Output $source_patterns > "$($SourcePath)\source_patterns.txt";}
 }
-
-if ($exclusion_patterns) {Write-Output $exclusion_patterns > "$($backup_path)\exclusion_patterns.txt";}
-if ($source_patterns) {Write-Output $source_patterns > "$($backup_path)\source_patterns.txt";}
 
 # Analyse $direrrors
 $DirErrors | Sort-Object -Property TargetObject -Unique | Foreach-Object {Write-Warning "$($_.CategoryInfo.Reason) on $($_.TargetObject). Items are not backed up."; $file_long_path_counter++; $file_fail_counter++;};
