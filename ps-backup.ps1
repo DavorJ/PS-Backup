@@ -321,23 +321,36 @@ param(
 }
 
 # Path shortening with junctions to circumvent 260 path length in win32 API and so PowerShell
-function shorten_path ( [string] $path_relative, [string] $tmp_path ) {
+function shorten_path {
+[CmdletBinding()]
+param( 
+	[Parameter(Mandatory=$true,
+			   Position=0,
+			   ValueFromPipeline=$true,
+			   HelpMessage="Path to shorten.")]
+    [string]$path,
+    [Parameter(Mandatory=$true,
+	 		   Position=1,
+			   ValueFromPipeline=$false,
+			   HelpMessage="Path to existing temp directory.")]
+    [string]$tmp_path    
+)
+	
 	# Requirements check
-	# Write-Warning "$($path_relative.length): $path_relative"
-	assert {$junction} "No junction array!";
-	assert {$tmp_path} "No tmp path given!";
+	# Write-Warning "$($path.length): $path"
+	assert {$junction} "No junction hash table!";
 	$max_length = 248; # this is directory max length; for files it is 260.
 	
 	# First check whether the path must be shortened.
-	if ($path_relative.length -lt $max_length) {
-		Write-Debug "Path length: $($path_relative.length) chars."; 
-		return $path_relative;
+	if ($path.length -lt $max_length) {
+		Write-Debug "Path length: $($path.length) chars."; 
+		return $path;
 	}
 	
 	# Check if there is allready a suitable symlink	
-	$path_sub = $junction.keys | foreach { if ($path_relative -Like "$_*") {$_} } | Sort-Object -Descending -Property length | Select-Object -First 1;
+	$path_sub = $junction.keys | foreach { if ($path -Like "$_*") {$_} } | Sort-Object -Descending -Property length | Select-Object -First 1;
 	if ($path_sub) {
-		$path_proposed = $path_relative -Replace [Regex]::Escape($path_sub), $junction[$path_sub];
+		$path_proposed = $path -Replace [Regex]::Escape($path_sub), $junction[$path_sub];
 		if ($path_proposed.length -lt $max_length) {
 			assert { Test-Path $junction[$path_sub] } "Assertion failed in junction path check $($junction[$path_sub]) for path $path_sub.";
 			return $path_proposed;
@@ -347,8 +360,9 @@ function shorten_path ( [string] $path_relative, [string] $tmp_path ) {
 	# No suitable symlink so make new one and update junction
 	$path_symlink_length = ($tmp_path + '\' + "xxxxxxxx").length;
 	$path_sub = ""; # Because it is allready used in the upper half, and if it is not empty, we get nice errors...
-	# Explanation: the whole directory ($path_relative) is taken, and with each iteration, a directory node is taken and put in
-	# $path_sub. This is done until there is nothing left in $path_relative.
+	$path_relative = $path;
+	# Explanation: the whole directory ($path) is taken, and with each iteration, a directory node is taken from
+	# $path_relative and put in $path_sub. This is done until there is nothing left in $path_relative.
 	while ($path_relative -Match '([\\]{0,2}[^\\]{1,})(\\.{1,})') {
 		$path_sub += $matches[1];
 		$path_relative = $matches[2];
