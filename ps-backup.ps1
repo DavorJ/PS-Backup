@@ -31,7 +31,6 @@
 ## - Store include and exlude lists in backup, and maybe a copy of the script for reference.
 ## - Write warning if a include command didn't result in any backup. Same for exclude command.
 ## - Directory compare command set, based on hases.
-## - Possibly improve the long path problems in Get-ChildItem in MainLoop. DirErrors is now badly used.
 ## - Keep directory modification dates.
 ##
 ## DISCUSSION
@@ -677,9 +676,6 @@ if ($MakeHashTable -or $HardlinkContents) {
 	if ($exclusion_patterns) {Write-Output $exclusion_patterns > "$($SourcePath)\exclusion_patterns.txt";}
 	if ($source_patterns) {Write-Output $source_patterns > "$($SourcePath)\source_patterns.txt";}
 }
-
-# Analyse $direrrors
-$DirErrors | Sort-Object -Property TargetObject -Unique | Foreach-Object {Write-Warning "$($_.CategoryInfo.Reason) on $($_.TargetObject). Items are not backed up."; $file_long_path_counter++; $file_fail_counter++;};
 
 # Summary
 if ($Backup) {
