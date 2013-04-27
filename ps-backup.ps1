@@ -395,9 +395,18 @@ function copy_file ([string] $source, [string] $destination ) {
 function Make-HashTableFromXML ([string] $path, [System.Collections.Hashtable] $hash, [string] $hashtable_name) {
 	# Hash tables are reference tyes, so no need to pass by reference.
 	foreach ($file in (Get-ChildItem -Path $path -Include $hashtable_name -Recurse -Force -ErrorAction SilentlyContinue | Sort-Object -Property FullName -Unique)) {
-		# In the hashtable the values are absolute paths.
-		Write-Debug "Importing hashtable from $file";
-		(Import-Clixml $file).GetEnumerator() | foreach { $hash[$_.Key] = (Split-Path -Parent $file.FullName) + $_.Value };
+		$wrong_ref = 0;
+		Write-Host "Importing hashtable from $file" -ForegroundColor Blue;
+		(Import-Clixml $file).GetEnumerator() | foreach { 
+			if (-not $hash[$_.Key]) {
+				# In the $hash the values should be absolute paths to files!
+				$abs_path = (Split-Path -Parent $file.FullName) + $_.Value;
+				if (Test-Path -Path (shorten_path $abs_path $tmp_path) -Type Leaf) {
+					$hash[$_.Key] = $abs_path;
+				} else {$wrong_ref++;}
+			}
+		}
+		if ($wrong_ref -ne 0) {Write-Warning "Hashfile $file has $wrong_ref wrong references. Consider rebuilding the hashfile with -MakeHashTable switch.";}
 	}
 }
 
