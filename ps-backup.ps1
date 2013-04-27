@@ -25,9 +25,6 @@
 ## - ShadowVolume access: curently there seems to be no way to access the SV directly through PowerShell
 ## - Create hard and soft links through .NET code via Add-Type: http://social.technet.microsoft.com/Forums/en-US/winserverpowershell/thread/01f8e50e-20fa-4e57-a76c-a15c929c0f4a/
 ## - Require admin privileges to run, either whole script or parts where needed.
-## - Show how many files were deleted when used with -delete-existing.
-## - Write why hard link failed in log.
-## - Problematic cases: 2 files, same hash, but different mod/creation times: only one is stored, the other will be copied every time. So matching should be done on hash and mod/creation time.
 ## - Store include and exlude lists in backup, and maybe a copy of the script for reference.
 ## - Write warning if a include command didn't result in any backup. Same for exclude command.
 ## - Directory compare command set, based on hases.
