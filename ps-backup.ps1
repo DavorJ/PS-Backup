@@ -497,6 +497,12 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 	assert {"FileInfo", "DirectoryInfo" -contains $source_file.gettype().name} "Unexpected filetype returned: $($source_file.gettype().name) for file $($source_file_path). Check Code";
 	assert {$source_file.FullName -eq (shorten_path $source_file_path $tmp_path)} "Paths not the same: $($source_file.FullName) not equal to $(shorten_path $source_file_path $tmp_path). Might cause problems. Check code.";
 	
+	if ($NotShadowed -or $HardlinkContents) {
+			$original_file_path = $source_file_path;
+	} else {
+			$original_file_path = $source_file_path -replace [Regex]::Escape($shadow[$source_file.PSDrive.name]), "$($source_file.PSDrive):";
+	}
+	
 	if ($Backup) {
 		# We build the backup destination path.
 		# Possible EXCEPTION: System.IO.PathTooLongException. 
@@ -504,13 +510,8 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 		# New-PSDrive is useless here because it doesn't really shorten the path like cmd subst does. It just obfurscates the real
 		# length of the path. So we test the real paths first. 
 		# shorten_path function reduces the path length by making symlinks.
-		if ($NotShadowed) {
-			$original_file_path = $source_file_path;
-			$file_destination_relative_path = '\' + $source_file.PSDrive.name + (Split-Path -NoQualifier -Path $source_file_path);
-		} else {
-			$original_file_path = $source_file_path -replace [Regex]::Escape($shadow[$source_file.PSDrive.name]), "$($source_file.PSDrive):"
-			$file_destination_relative_path = '\' + $source_file.PSDrive.name + (Split-Path -NoQualifier -Path $original_file_path)
-		}
+		$file_destination_relative_path = '\' + $source_file.PSDrive.name + (Split-Path -NoQualifier -Path $original_file_path);
+		assert {$BackupRoot} "BackupRoot not set.";
 		$file_destination_path = shorten_path ($backup_path + $file_destination_relative_path) $tmp_path;
 		$file_destination_parent_path = Split-Path -Parent -Path $file_destination_path;
 
