@@ -98,6 +98,11 @@
 ## Here we will make a hashtable of contents in "W:\Backups\Server" and export it in the root of the directory.
 ## Next time a backup is made in "W:\Backups\Server" or higher, this table will be used for linking files.
 ##
+## .EXAMPLE
+##  .\ps-backup.ps1 -HardLinkContents -SourcePath "W:\Backups\Server"
+##
+## In this example, all contents of "W:\Backups\Server" will be hardlinked. Also, a hashtable will be made.
+##
 ## .NOTES
 ## See Discussion comment.
 #########################
