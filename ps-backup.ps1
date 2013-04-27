@@ -552,12 +552,13 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 	# Copy or hard link procedure.
 	if ($Backup -or $HardlinkContents) {
 		# Following if's are cases which it might be possible to make a hard link. If they fail, the file is copied.
-		if ((-not $hashtable.count -eq 0) -and (-not $source_file.PSIsContainer) -and (-not $source_file.IsReadOnly)) {
-			if ($hashtable.ContainsKey($hash_shadow)) {
-				assert { Test-Path (shorten_path $hashtable[$hash_shadow] $tmp_path) -Type leaf } "File $($hashtable[$hash_shadow]) referenced by hash from hash table doesn't exist. Recalculatre hashes.";
+		if (($hashtable.count -ne 0) -and (-not $source_file.PSIsContainer) -and (-not $source_file.IsReadOnly)) {
+			if ($hashtable.ContainsKey($hash_shadow) -and (Test-Path (shorten_path $hashtable[$hash_shadow] $tmp_path) -PathType Leaf)) {
 				$file_existing = New-Object System.IO.FileInfo(shorten_path $hashtable[$hash_shadow] $tmp_path);
-				assert { $file_existing.FullName.length -le 259 } "Path of possible hard link too long! Fix code!";
-				if (($file_existing.LastWriteTimeUtc -eq $source_file.LastWriteTimeUtc) -and ($file_existing.CreationTimeUtc -eq $source_file.CreationTimeUtc) -and (($file_existing.attributes -match "Hidden") -eq ($source_file.attributes -match "Hidden"))) {
+				if (($file_existing.LastWriteTimeUtc -eq $source_file.LastWriteTimeUtc) -and 
+					($file_existing.CreationTimeUtc -eq $source_file.CreationTimeUtc) -and 
+					(($file_existing.attributes -match "Hidden") -eq ($source_file.attributes -match "Hidden"))) {
+					# Binary file comparison
 					cmd /c fc /B """$($file_existing.FullName)""" """$($source_file.FullName)""" | Out-Null;
 					if ($LASTEXITCODE -eq 0) { # The two files are binary equal.
 						# Making a symlink is not an option, because if the original is deleted, then the symlink will point to an invalid
@@ -573,7 +574,7 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 							$linked_bytes += $source_file.length;
 						} elseif ($HardlinkContents) {
 							# This should be a transaction: delete + make link.
-							assert {$NotShadowed -or $HardlinkContents} "We may only be here in certain conditions: like when explicitly stating one doesn't want to use shadow copy.";
+							assert {$file_existing.Exists} "File $(file_existing.FullName) doesn't exist... check code!";
 							$source_file.Delete();
 							# $source_file properties are cached, so we can reuse them.
 							$mklink_output = cmd /c mklink /H """$($source_file.FullName)""" """$($file_existing.FullName)""" 2>&1;
@@ -652,7 +653,6 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 			$hashtable_new[$hash_shadow] = $source_file.FullName -Replace [Regex]::Escape($SourcePath), "";
 		} 
 		if ($HardlinkContents) {
-			$hashtable_new[$hash_shadow] = $source_file.FullName -Replace [Regex]::Escape($SourcePath), "";
 			$hashtable[$hash_shadow] = $source_file.FullName;
 		}
 	}
@@ -660,6 +660,9 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 	# Clean up prior to next loop. (Hate those "hygienic dynamic" scopes...)
 	if ($copied_item) {Remove-Variable copied_item;}		
 }
+
+# Finishing jobs
+###############################################################
 
 # cleanup links
 foreach ($link in ($shadow.Values + $junction.values)) {
@@ -684,13 +687,11 @@ if ($MakeHashTable -or $HardlinkContents) {
 }
 
 # Summary
+Write-Host "Hashtable successfully saved in $(if ($Backup) {$backup_path} else {$SourcePath})." -ForegroundColor "DarkGreen";
 if ($Backup) {
-	Write-Host "$file_counter files copied, from which $file_link_counter hard link. ($copied_bytes bytes copied of which $copied_readonly_bytes bytes readonly, while $linked_bytes bytes linked.)" -ForegroundColor "DarkGreen";
+	Write-Host "$file_counter files copied, from which $file_link_counter hard link. ($copied_bytes bytes copied of which $copied_readonly_bytes bytes readonly, while $linked_bytes bytes linked.)" -ForegroundColor "Green";
 	Write-Host "$file_fail_counter files failed to copy. ($file_long_path_counter due to long path)" -ForegroundColor "Red";
 }
-if ($MakeHashTable) {
-	Write-Host "Hashtable for $SourcePath successfully saved." -ForegroundColor "DarkGreen";;	
-}
 if ($HardlinkContents) {
-	Write-Host "$file_counter files hard linked. ($deleted_bytes bytes saved.)" -ForegroundColor "DarkGreen";
+	Write-Host "$file_counter files hard linked. ($deleted_bytes bytes saved.)" -ForegroundColor "Green";
 }
