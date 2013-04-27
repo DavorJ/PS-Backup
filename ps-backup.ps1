@@ -320,7 +320,7 @@ param(
 }
 
 # Returns a shortened path made with junctions to circumvent 260 path length in win32 API and so PowerShell
-function shorten_path {
+function Shorten-Path {
 [CmdletBinding()]
 param( 
 	[Parameter(Mandatory=$true,
@@ -370,7 +370,7 @@ process {
 		if ( ($path_symlink_length + $path_relative.length) -lt $max_length ) {
 			$tmp_junction_name = $TempPath + '\' + [Convert]::ToString($path_sub.gethashcode(), 16);
 			# $path_sub might be very large. We can not link to a too long path. So we also need to shorten it (i.e. recurse).
-			$mklink_output = cmd /c mklink /D """$tmp_junction_name""" """$(shorten_path $path_sub $TempPath)""" 2>&1;
+			$mklink_output = cmd /c mklink /D """$tmp_junction_name""" """$(Shorten-Path $path_sub $TempPath)""" 2>&1;
 			$junction[$path_sub] = $tmp_junction_name;
 			assert { $LASTEXITCODE -eq 0 } "Making link $($junction[$path_sub]) for long path $path_sub failed with ERROR: $mklink_output.";
 			return $junction[$path_sub] + $path_relative;
@@ -414,7 +414,7 @@ function Make-HashTableFromXML ([string] $path, [System.Collections.Hashtable] $
 			if (-not $hash[$_.Key]) {
 				# In the $hash the values should be absolute paths to files!
 				$abs_path = (Split-Path -Parent $file.FullName) + $_.Value;
-				if (Test-Path -Path (shorten_path $abs_path $tmp_path) -Type Leaf) {
+				if (Test-Path -Path (Shorten-Path $abs_path $tmp_path) -Type Leaf) {
 					$hash[$_.Key] = $abs_path;
 				} else {$wrong_ref++;}
 			}
@@ -515,17 +515,17 @@ if (-not $HardlinkContents -and (($Backup -or $MakeHashTable) -and -not $NotShad
 ###############################################################
 if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable..."} elseif ($HardlinkContents) {"Hardlinking contents..."};
 :MainLoop foreach ($source_file_path in ( $source_patterns | foreach {$_ -replace '\\[^\\]*[\*].*', ''} |
-	foreach { if (Test-Path -Path ( shorten_path $_ $tmp_path)) {$_} } | 
-	foreach { if (Test-Path -Path ( shorten_path $_ $tmp_path) -Type Leaf) {Split-Path -Path $_ -Parent;} else {$_;} } |
+	foreach { if (Test-Path -Path ( Shorten-Path $_ $tmp_path)) {$_} } | 
+	foreach { if (Test-Path -Path ( Shorten-Path $_ $tmp_path) -Type Leaf) {Split-Path -Path $_ -Parent;} else {$_;} } |
 	Get-LongChildItem | Sort-Object -Unique | exclusion_filter)) {
 	# Here -Force allows to get items that cannot otherwise not be accessed by the user, such as hidden or system files.
 	# Attributes can also be used, like ReparsePoint: See http://msdn.microsoft.com/en-us/library/system.io.fileattributes(lightweight).aspx
 	# Select-Object -Unique is needed because Get-ChildItem might give duplicate paths, depending on the sources.
 
-	$source_file = Get-Item -Force -LiteralPath (shorten_path $source_file_path $tmp_path);
-	assert {$source_file} "File $(shorten_path $source_file_path $tmp_path) not created.";
+	$source_file = Get-Item -Force -LiteralPath (Shorten-Path $source_file_path $tmp_path);
+	assert {$source_file} "File $(Shorten-Path $source_file_path $tmp_path) not created.";
 	assert {"FileInfo", "DirectoryInfo" -contains $source_file.gettype().name} "Unexpected filetype returned: $($source_file.gettype().name) for file $($source_file_path). Check Code";
-	assert {$source_file.FullName -eq (shorten_path $source_file_path $tmp_path)} "Paths not the same: $($source_file.FullName) not equal to $(shorten_path $source_file_path $tmp_path). Might cause problems. Check code.";
+	assert {$source_file.FullName -eq (Shorten-Path $source_file_path $tmp_path)} "Paths not the same: $($source_file.FullName) not equal to $(Shorten-Path $source_file_path $tmp_path). Might cause problems. Check code.";
 	
 	if ($NotShadowed -or $HardlinkContents) {
 			$original_file_path = $source_file_path;
@@ -539,10 +539,10 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 		# See http://stackoverflow.com/questions/530109/how-to-avoid-system-io-pathtoolongexception#
 		# New-PSDrive is useless here because it doesn't really shorten the path like cmd subst does. It just obfurscates the real
 		# length of the path. So we test the real paths first. 
-		# shorten_path function reduces the path length by making symlinks.
+		# Shorten-Path function reduces the path length by making symlinks.
 		$file_destination_relative_path = '\' + $source_file.PSDrive.name + (Split-Path -NoQualifier -Path $original_file_path);
 		assert {$BackupRoot} "BackupRoot not set.";
-		$file_destination_path = shorten_path ($backup_path + $file_destination_relative_path) $tmp_path;
+		$file_destination_path = Shorten-Path ($backup_path + $file_destination_relative_path) $tmp_path;
 		$file_destination_parent_path = Split-Path -Parent -Path $file_destination_path;
 
 		# Because Copy-Item and mklink do not work if the destination directory doesn't exist,
@@ -570,8 +570,8 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 	if ($Backup -or $HardlinkContents) {
 		# Following if's are cases which it might be possible to make a hard link. If they fail, the file is copied.
 		if (($hashtable.count -ne 0) -and (-not $source_file.PSIsContainer) -and (-not $source_file.IsReadOnly)) {
-			if ($hashtable.ContainsKey($hash_shadow) -and (Test-Path (shorten_path $hashtable[$hash_shadow] $tmp_path) -PathType Leaf)) {
-				$file_existing = New-Object System.IO.FileInfo(shorten_path $hashtable[$hash_shadow] $tmp_path);
+			if ($hashtable.ContainsKey($hash_shadow) -and (Test-Path (Shorten-Path $hashtable[$hash_shadow] $tmp_path) -PathType Leaf)) {
+				$file_existing = New-Object System.IO.FileInfo(Shorten-Path $hashtable[$hash_shadow] $tmp_path);
 				if (($file_existing.LastWriteTimeUtc -eq $source_file.LastWriteTimeUtc) -and 
 					($file_existing.CreationTimeUtc -eq $source_file.CreationTimeUtc) -and 
 					(($file_existing.attributes -match "Hidden") -eq ($source_file.attributes -match "Hidden"))) {
