@@ -33,7 +33,7 @@
 ## DISCUSSION
 #########################
 ## - Soft links: are not an option. Deleting the source backup will make all other softlinks useless.
-## - Read-only files are never hard-linked. Deleting a backup with read-only hard-linked files will reset the hard link for
+## - Read-only files are never hard-linked. Deleting a backup with read-only hard-linked files will uncheck the read-only attribute for
 ##   all the other linked files: http://msdn.microsoft.com/en-us/library/windows/desktop/aa365006(v=vs.85).aspx
 ## - Compressing disks (and files?) on NTFS volumes has no effect on hard links: they are preserved. Still, compression and decompressing seems quite slow.
 ## - Cluster size on disk: should be as small as possible because each hard link consumes one cluster? I think it is stored seperately in MFT, so it shouldn't be the case. Any references?
