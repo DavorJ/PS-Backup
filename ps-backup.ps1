@@ -196,7 +196,6 @@ $md5 = new-object -TypeName System.Security.Cryptography.MD5CryptoServiceProvide
 
 # Functions
 ###############################################################
-
 Function Get-LongChildItem {
 # Long paths with robocopy: http://www.powershellmagazine.com/2012/07/24/jaap-brassers-favorite-powershell-tips-and-tricks/
 # I used the copde to build a wrapperlike Get-ChildItem cmdlet.
@@ -207,39 +206,15 @@ Function Get-LongChildItem {
    ) 
  
     begin {
-        if (!(Test-Path -Path $(Join-Path $env:SystemRoot '\System32\robocopy.exe'))) {
-            write-error "Robocopy not found, please install robocopy"
-            return
-        }
-        $Results = @()
+		$tmp_file = $tmp_path + '\' + 'files.txt';
     }
   
     process {
         foreach ($Path in $FolderPath) {
-            $RoboOutput = robocopy $Path 'c:\doesnotexist' /L /E /B /NP /FP /NJH /NJS /R:0 /NS /NC | foreach {$_.trim()}
-			# /L :: List only - don't copy, timestamp or delete any files.
-			# /E :: copy subdirectories, including Empty ones.
-			# /B :: copy files in Backup mode. (bypasses ACL restrictions... strange.)
-			# /NP :: No Progress - don't display percentage copied.
-			# /FP :: include Full Pathname of files in the output.
-			# /NJH :: No Job Header.
-			# /NJS :: No Job Summary.
-			# /R:n :: number of Retries on failed copies: default 1 million.
-			# /NS :: No Size - don't log file sizes.
-			# /NC :: No Class - don't log file classes.
-			
-			# Robocopy outputs errors together with file log. An error looks like this:
-			# 2013/04/20 16:40:13 ERROR 3 (0x00000003) Scanning Source Directory w:\scripts\ps-backup\tmp\W@GMT-2013.04.04-21.41.11\
-			# We need to filter those somehow.
-			
-			$RoboOutput | foreach {
-				if (($_ -Match '.*ERROR\s[0-9]{1,}\s\(0x[0-F]{8}\).*') -or $Next_line_error_description) {
-					# work-around because the next line is robocop's error description.
-					if ($Next_line_error_description) {Write-Warning "ROBOCOPY: $roboerror $_"; $Next_line_error_description = $false} else {$roboerror = $_; $Next_line_error_description = $true};
-				} else {
-					if ($_) {$_}
-				}
-			};
+			cmd /u /c """dir $Path /S /B /A > $tmp_file""";
+			if (Test-Path $tmp_file) {
+				Get-Content $tmp_file -Encoding UNICODE | foreach {$_.trim()} | foreach {if (($_) -and (Test-Path -LiteralPath (Shorten-Path $_ $tmp_path) -IsValid)) {$_} else {Write-Warning "PATH NOT VALID: $_"}}
+			}
         }
     }
  
@@ -344,9 +319,8 @@ function Shorten-Path {
 	
 	process {
 		# First check whether the path must be shortened.
-		# Write-Warning "$($path.length): $path"
 		if ($Path.length -lt $max_length) {
-			Write-Debug "Path length: $($Path.length) chars."; 
+			# Write-Warning "$($path.length): $path"
 			return $Path;
 		}
 		
@@ -420,7 +394,10 @@ function Make-HashTableFromXML ([string] $path, [System.Collections.Hashtable] $
 				$abs_path = (Split-Path -Parent $file.FullName) + $_.Value;
 				if (Test-Path -Path (Shorten-Path $abs_path $tmp_path) -Type Leaf) {
 					$hash[$_.Key] = $abs_path;
-				} else {$wrong_ref++;}
+				} else {
+					Write-Debug "Hash reference to $abs_path doesn't exist."; 
+					$wrong_ref++;
+				}
 			}
 		}
 		if ($wrong_ref -ne 0) {Write-Warning "Hashfile $file has $wrong_ref wrong references. Consider rebuilding the hashfile with -MakeHashTable switch.";}
@@ -522,12 +499,13 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 	foreach { if (Test-Path -Path ( Shorten-Path $_ $tmp_path)) {$_} } | 
 	foreach { if (Test-Path -Path ( Shorten-Path $_ $tmp_path) -Type Leaf) {Split-Path -Path $_ -Parent;} else {$_;} } |
 	Get-LongChildItem | Sort-Object -Unique | exclusion_filter)) {
-	# Here -Force allows to get items that cannot otherwise not be accessed by the user, such as hidden or system files.
 	# Attributes can also be used, like ReparsePoint: See http://msdn.microsoft.com/en-us/library/system.io.fileattributes(lightweight).aspx
 	# Select-Object -Unique is needed because Get-ChildItem might give duplicate paths, depending on the sources.
 
+	if (-not (Test-Path -LiteralPath (Shorten-Path $source_file_path $tmp_path))) {Write-Warning "Couldn't find $source_file_path"; continue MainLoop;}
+	if (-not (Test-Path -LiteralPath (Shorten-Path $source_file_path $tmp_path) -IsValid)) {Write-Warning "Path $source_file_path invalid."; continue MainLoop;}
 	$source_file = Get-Item -Force -LiteralPath (Shorten-Path $source_file_path $tmp_path);
-	assert {$source_file} "File $(Shorten-Path $source_file_path $tmp_path) not created.";
+	assert {$source_file} "FileInfo object for file $(Shorten-Path $source_file_path $tmp_path) not created.";
 	assert {"FileInfo", "DirectoryInfo" -contains $source_file.gettype().name} "Unexpected filetype returned: $($source_file.gettype().name) for file $($source_file_path). Check Code";
 	assert {$source_file.FullName -eq (Shorten-Path $source_file_path $tmp_path)} "Paths not the same: $($source_file.FullName) not equal to $(Shorten-Path $source_file_path $tmp_path). Might cause problems. Check code.";
 	
@@ -596,6 +574,7 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 						} elseif ($HardlinkContents) {
 							# This should be a transaction: delete + make link.
 							assert {$file_existing.Exists} "File $($file_existing.FullName) doesn't exist... check code!";
+							assert {$file_existing.FullName -ne $source_file.FullName} "Source file $($source_file.FullName) and existing file $($file_existing.FullName) have the same paths! Check code.";
 							$source_file.Delete();
 							# $source_file properties are cached, so we can reuse them.
 							$mklink_output = cmd /c mklink /H """$($source_file.FullName)""" """$($file_existing.FullName)""" 2>&1;
