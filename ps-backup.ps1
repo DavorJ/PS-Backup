@@ -466,7 +466,7 @@ if ($MakeHashTable -or $HardlinkContents) {
 # We also make a shadow on the $BackupRoot so we can revert if somehing goes wrong.
 if (-not $HardlinkContents -and (($Backup -or $MakeHashTable) -and -not $NotShadowed)) {
 	# First we make a small array of drive letters from the include_list.txt
-	$drives = ($source_patterns, $BackupRoot) | Split-Path -Qualifier | Sort-Object -Unique | foreach {$_ -replace ':', ''} | where {$_};
+	$drives = ($source_patterns, $BackupRoot) |  where {$_} | Split-Path -Qualifier | Sort-Object -Unique | foreach {$_ -replace ':', ''} | where {$_};
 	# Then we create a shadow drive for each of the drive letters.
 	foreach ($drive in $drives) {
 		Write-Host "Making new shadow drive on partition $drive." -ForegroundColor Magenta;
