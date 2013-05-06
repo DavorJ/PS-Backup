@@ -660,11 +660,16 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 			$hashtable_new[$hash_shadow] = $file_destination_relative_path;
 			# Also update current hashtable so new files can be linked to it.
 			$hashtable[$hash_shadow] = $backup_path + $file_destination_relative_path;
+			# Make sure that the path of the hash is valid.
+			assert {Test-Path -LiteralPath (Shorten-Path $hashtable[$hash_shadow] $tmp_path) -PathType Leaf} "Hashed file $($hashtable[$hash_shadow]) non-existant.";
 		}
 		if ($MakeHashTable -or $HardlinkContents) {
-			$hashtable_new[$hash_shadow] = $source_file.FullName -Replace [Regex]::Escape($SourcePath), "";
+			$hashtable_new[$hash_shadow] = $original_file_path -Replace [Regex]::Escape($SourcePath), "";
+			# Make sure that the path of the hash is valid.
+			assert {Test-Path -LiteralPath (Shorten-Path $original_file_path $tmp_path) -PathType Leaf} "Hashed file $original_file_path non-existant.";			
 		} 
 		if ($HardlinkContents) {
+			# Update current hashtable so new files can be linked to it.
 			$hashtable[$hash_shadow] = $source_file.FullName;
 		}
 	}
