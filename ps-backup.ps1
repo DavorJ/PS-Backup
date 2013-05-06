@@ -391,11 +391,12 @@ function Make-HashTableFromXML ([string] $path, [System.Collections.Hashtable] $
 	# Hash tables are reference tyes, so no need to pass by reference.
 	foreach ($file in (Get-ChildItem -Path $path -Include $hashtable_name -Recurse -Force -ErrorAction SilentlyContinue | Sort-Object -Property FullName -Unique)) {
 		$wrong_ref = 0;
+		$file_parent = Split-Path -Parent $file.FullName;
 		Write-Host "Importing hashtable from $file" -ForegroundColor Blue;
 		(Import-Clixml $file).GetEnumerator() | foreach { 
 			if (-not $hash[$_.Key]) {
 				# In the $hash the values should be absolute paths to files!
-				$abs_path = (Split-Path -Parent $file.FullName) + $_.Value;
+				$abs_path = $file_parent + $_.Value;
 				if (Test-Path -LiteralPath (Shorten-Path $abs_path $tmp_path) -Type Leaf) {
 					$hash[$_.Key] = $abs_path;
 				} else {
@@ -449,6 +450,7 @@ if ($Backup) {
 	if ($ExclusionFile) { $exclusion_patterns = get-content $ExclusionFile | remove_comments | where {$_ -ne ""}; }
 }
 
+# Making hashtable from -LinkToDirectory path
 if ($LinkToDirectory) {
 	"Starting new instance of the script to make a hashtable for $LinkToDirectory.";
 	powershell -File """$($myinvocation.MyCommand.Definition)""" -MakeHashTable -SourcePath """$($LinkToDirectory)""" -NotShadowed;
@@ -456,6 +458,7 @@ if ($LinkToDirectory) {
 	Make-HashTableFromXML $LinkToDirectory $hashtable $hashtable_name;
 }
 
+# Making hashtable from -LinkToHashtables path
 if ($LinkToHashtables) {
 	"Searching for hashtables in $LinkToHashtables"; 
 	$previous_hash_count = $hashtable.count;
@@ -468,7 +471,7 @@ if ($LinkToHashtables) {
 	if ($previous_hash_count -eq $hashtabe.count) { Write-Warning "No new hashes found in $LinkToHashtables"; }
 }
 
-if ($MakeHashTable -or $HardlinkContents) {
+if ($MakeHashTable -or $HardLinkContents) {
 	assert {Test-Path -LiteralPath $SourcePath -PathType Container} "-SourcePath can only be a directory.";
 	$source_patterns = $SourcePath + '\*';
 }
