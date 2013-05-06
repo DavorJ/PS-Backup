@@ -120,7 +120,7 @@ param(
    [switch]$MakeHashTable=$false,
    [Parameter(Mandatory=$true,
 			  Position=0,	
-			  ParameterSetName="HardlinkContents",
+			  ParameterSetName="HardLinkContents",
 			  ValueFromPipeline=$false,
 			  HelpMessage="Hardlink the contents of a directory.")]
    [switch]$HardlinkContents=$false,
@@ -159,9 +159,13 @@ param(
    [string][ValidateScript({Test-Path -LiteralPath $_ -PathType Container})]$LinkToDirectory,
    [Parameter(Mandatory=$false,
  			  ParameterSetName="Backup",
-			  ValueFromPipeline=$True,
-			  HelpMessage="By default, copies are linked to previous backups. Here you can specify a hashtable to link to.")]
-   [string][ValidateScript({Test-Path -LiteralPath $_ -PathType Leaf})]$LinkToHashtable
+			  ValueFromPipeline=$false,
+			  HelpMessage="By default, copies are linked to previous backups. Here you can specify a hashtable to link to, or a dir with hashtables.")]
+   [Parameter(Mandatory=$false,
+ 			  ParameterSetName="HardLinkContents",
+			  ValueFromPipeline=$false,
+			  HelpMessage="Here you can specify a hashtable to link to, or a dir with hashtables.")]
+   [string][ValidateScript({Test-Path -LiteralPath $_})]$LinkToHashtables
 )
 
 # System Variables for backup Procedure
@@ -429,17 +433,6 @@ if ($Backup) {
 			exit 1;
 		}		
 	}
-	
-	if ($LinkToDirectory) {
-		"Starting new instance of the script to make a hashtable for $LinkToDirectory.";
-		powershell -File """$($myinvocation.MyCommand.Definition)""" -MakeHashTable -SourcePath """$($LinkToDirectory)""" -NotShadowed;
-		if ($?) {"Continuing backup..."} else {"Script didn't succeed with hashtable making. Exiting script."; exit;};
-		Make-HashTableFromXML $LinkToDirectory $hashtable $hashtable_name;
-	}
-	
-	if ($LinkToHashtable) {
-		Make-HashTableFromXML $LinkToHashtable $hashtable '*';
-	}
 
 	# Making backup folder
 	assert { -not (Test-Path -LiteralPath $backup_path); } "Backup path exists when it should not! Check code!";
@@ -454,6 +447,25 @@ if ($Backup) {
 	$source_patterns = get-content $SourcePath | remove_comments | where {$_ -ne ""};
 	
 	if ($ExclusionFile) { $exclusion_patterns = get-content $ExclusionFile | remove_comments | where {$_ -ne ""}; }
+}
+
+if ($LinkToDirectory) {
+	"Starting new instance of the script to make a hashtable for $LinkToDirectory.";
+	powershell -File """$($myinvocation.MyCommand.Definition)""" -MakeHashTable -SourcePath """$($LinkToDirectory)""" -NotShadowed;
+	if ($?) {"Continuing backup..."} else {"Script didn't succeed with hashtable making. Exiting script."; exit;};
+	Make-HashTableFromXML $LinkToDirectory $hashtable $hashtable_name;
+}
+
+if ($LinkToHashtables) {
+	"Searching for hashtables in $LinkToHashtables"; 
+	$previous_hash_count = $hashtable.count;
+	if (Test-Path -Path $LinkToHashtables -Type Leaf) {
+		Make-HashTableFromXML $LinkToHashtables $hashtable '*';
+	} else {
+		assert {Test-Path -Path $LinkToHashtables -Type Container} "Unexpected path type for $LinkToHashtables";
+		Make-HashTableFromXML $LinkToHashtables $hashtable $hashtable_name;
+	}
+	if ($previous_hash_count -eq $hashtabe.count) { Write-Warning "No new hashes found in $LinkToHashtables"; }
 }
 
 if ($MakeHashTable -or $HardlinkContents) {
