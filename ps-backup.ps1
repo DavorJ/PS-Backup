@@ -216,7 +216,7 @@ Function Get-LongChildItem {
     process {
         foreach ($Path in $FolderPath) {
 			cmd /u /c """dir $Path /S /B /A > $tmp_file""";
-			if (Test-Path $tmp_file) {
+			if (Test-Path -LiteralPath $tmp_file) {
 				Get-Content $tmp_file -Encoding UNICODE | foreach {$_.trim()} | foreach {if (($_) -and (Test-Path -LiteralPath (Shorten-Path $_ $tmp_path) -IsValid)) {$_} else {Write-Warning "PATH NOT VALID: $_"}}
 			}
         }
@@ -231,7 +231,7 @@ filter remove_comments {
 	$_ = $_ -replace '(#|::|//).*?$', '' # remove all occurance of line-comments from piped items
 	if ($_) {
 		assert { -not $_.StartsWith("*") } "Ambiguous path. Shouldn't be used.";
-		# assert { Test-Path -Path $_ -IsValid } "Path $_ is not valid."; # might contain wildcards...
+		# assert { Test-Path -LiteralPath $_ -IsValid } "Path $_ is not valid."; # might contain wildcards...
 	}
 	return $_;
 };
@@ -333,7 +333,7 @@ function Shorten-Path {
 		if ($path_sub) {
 			$path_proposed = $Path -Replace [Regex]::Escape($path_sub), $junction[$path_sub];
 			if ($path_proposed.length -lt $max_length) {
-				assert { Test-Path $junction[$path_sub] } "Assertion failed in junction path check $($junction[$path_sub]) for path $path_sub.";
+				assert { Test-Path -LiteralPath $junction[$path_sub] } "Assertion failed in junction path check $($junction[$path_sub]) for path $path_sub.";
 				return $path_proposed;
 			}
 		}
@@ -396,7 +396,7 @@ function Make-HashTableFromXML ([string] $path, [System.Collections.Hashtable] $
 			if (-not $hash[$_.Key]) {
 				# In the $hash the values should be absolute paths to files!
 				$abs_path = (Split-Path -Parent $file.FullName) + $_.Value;
-				if (Test-Path -Path (Shorten-Path $abs_path $tmp_path) -Type Leaf) {
+				if (Test-Path -LiteralPath (Shorten-Path $abs_path $tmp_path) -Type Leaf) {
 					$hash[$_.Key] = $abs_path;
 				} else {
 					Write-Debug "Hash reference to $abs_path doesn't exist."; 
@@ -409,7 +409,7 @@ function Make-HashTableFromXML ([string] $path, [System.Collections.Hashtable] $
 }
 
 # Making temp dir
-if (-not (Test-Path $tmp_path)) {
+if (-not (Test-Path -LiteralPath $tmp_path)) {
 	New-Item -ItemType directory -Path $tmp_path | Out-Null;
 }
 
@@ -459,10 +459,10 @@ if ($LinkToDirectory) {
 if ($LinkToHashtables) {
 	"Searching for hashtables in $LinkToHashtables"; 
 	$previous_hash_count = $hashtable.count;
-	if (Test-Path -Path $LinkToHashtables -Type Leaf) {
+	if (Test-Path -LiteralPath $LinkToHashtables -Type Leaf) {
 		Make-HashTableFromXML $LinkToHashtables $hashtable '*';
 	} else {
-		assert {Test-Path -Path $LinkToHashtables -Type Container} "Unexpected path type for $LinkToHashtables";
+		assert {Test-Path -LiteralPath $LinkToHashtables -Type Container} "Unexpected path type for $LinkToHashtables";
 		Make-HashTableFromXML $LinkToHashtables $hashtable $hashtable_name;
 	}
 	if ($previous_hash_count -eq $hashtabe.count) { Write-Warning "No new hashes found in $LinkToHashtables"; }
@@ -508,8 +508,8 @@ if (-not $HardlinkContents -and (($Backup -or $MakeHashTable) -and -not $NotShad
 ###############################################################
 if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable..."} elseif ($HardlinkContents) {"Hardlinking contents..."};
 :MainLoop foreach ($source_file_path in ( $source_patterns | foreach {$_ -replace '\\[^\\]*[\*].*', ''} |
-	foreach { if (Test-Path -Path ( Shorten-Path $_ $tmp_path)) {$_} } | 
-	foreach { if (Test-Path -Path ( Shorten-Path $_ $tmp_path) -Type Leaf) {Split-Path -Path $_ -Parent;} else {$_;} } |
+	foreach { if (Test-Path -LiteralPath ( Shorten-Path $_ $tmp_path)) {$_} } | 
+	foreach { if (Test-Path -LiteralPath ( Shorten-Path $_ $tmp_path) -Type Leaf) {Split-Path -Path $_ -Parent;} else {$_;} } |
 	Get-LongChildItem | Sort-Object -Unique | exclusion_filter)) {
 	# Attributes can also be used, like ReparsePoint: See http://msdn.microsoft.com/en-us/library/system.io.fileattributes(lightweight).aspx
 	# Select-Object -Unique is needed because Get-ChildItem might give duplicate paths, depending on the sources.
@@ -564,7 +564,7 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 	if ($Backup -or $HardlinkContents) {
 		# Following if's are cases which it might be possible to make a hard link. If they fail, the file is copied.
 		if (($hashtable.count -ne 0) -and (-not $source_file.PSIsContainer) -and (-not $source_file.IsReadOnly)) {
-			if ($hashtable.ContainsKey($hash_shadow) -and (Test-Path (Shorten-Path $hashtable[$hash_shadow] $tmp_path) -PathType Leaf)) {
+			if ($hashtable.ContainsKey($hash_shadow) -and (Test-Path -LiteralPath (Shorten-Path $hashtable[$hash_shadow] $tmp_path) -PathType Leaf)) {
 				$file_existing = New-Object System.IO.FileInfo(Shorten-Path $hashtable[$hash_shadow] $tmp_path);
 				if (($file_existing.LastWriteTimeUtc -eq $source_file.LastWriteTimeUtc) -and 
 					($file_existing.CreationTimeUtc -eq $source_file.CreationTimeUtc) -and 
