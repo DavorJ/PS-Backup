@@ -389,23 +389,25 @@ function copy_file ([string] $source, [string] $destination ) {
 # Make hashtable from stored xml files
 function Make-HashTableFromXML ([string] $path, [System.Collections.Hashtable] $hash, [string] $hashtable_name) {
 	# Hash tables are reference tyes, so no need to pass by reference.
-	foreach ($file in (Get-ChildItem -Path $path -Include $hashtable_name -Recurse -Force -ErrorAction SilentlyContinue | Sort-Object -Property FullName -Unique)) {
+	Get-ChildItem -Path $path -Filter $hashtable_name -Recurse -Force -ErrorAction SilentlyContinue | 
+	foreach {
 		$wrong_ref = 0;
-		$file_parent = Split-Path -Parent $file.FullName;
-		Write-Host "Importing hashtable from $file" -ForegroundColor Blue;
-		(Import-Clixml $file).GetEnumerator() | foreach { 
+		$file_parent = Split-Path -Parent $_.FullName;
+		Write-Host "Importing hashtable from $($_.FullName)" -ForegroundColor Blue;
+		(Import-Clixml $_.FullName).GetEnumerator() | 
+		foreach { 
 			if (-not $hash[$_.Key]) {
 				# In the $hash the values should be absolute paths to files!
 				$abs_path = $file_parent + $_.Value;
 				if (Test-Path -LiteralPath (Shorten-Path $abs_path $tmp_path) -Type Leaf) {
 					$hash[$_.Key] = $abs_path;
 				} else {
-					Write-Debug "Hash reference to $abs_path doesn't exist."; 
+					Write-Verbose "Hash reference to $abs_path: file doesn't exist.."; 
 					$wrong_ref++;
 				}
 			}
 		}
-		if ($wrong_ref -ne 0) {Write-Warning "Hashfile $file has $wrong_ref wrong references. Consider rebuilding the hashfile with -MakeHashTable switch.";}
+		if ($wrong_ref -ne 0) {Write-Warning "Hashfile $($_.FullName) has $wrong_ref wrong references. Consider rebuilding the hashfile with -MakeHashTable switch.";}
 	}
 }
 
