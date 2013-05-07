@@ -69,7 +69,7 @@ foreach {
 	# /XC :: eXclude Changed files.
 	# /XN :: eXclude Newer files.
 	# /XO :: eXclude Older files.
-	# /IS :: Include Same files. ## Robocopy seems to only check the modification time, not creation time, so they have to be copied.
+	# /IS :: Include Same files. ## Robocopy seems to only check the modification time, not creation time. If creation time don't match, files will be reported as same anyway. Only way to force adjustment, is to copy the file.
 	# /COPY:DAT :: D=Data, A=Attributes, T=Timestamps
 	# /FP :: include Full Pathname of files in the output.
 	# /NDL :: No Directory List - don't log directory names.
@@ -78,8 +78,9 @@ foreach {
 	# /R:n :: number of Retries on failed copies: default 1 million.
 	# /NJH :: No Job Header.
 	# /NJS :: No Job Summary.
-
-	robocopy """$($file.DirectoryName)""" """$TargetPath""" """$($file.Name)""" /V /XC /XN /XO /IS /COPY:DAT /FP /NDL /NS /NP /R:1 /NJH /NJS | 
+	
+	# COPY SAME ITEM (/IS) DISABLED
+	robocopy """$($file.DirectoryName)""" """$TargetPath""" """$($file.Name)""" /V /XC /XN /XO /COPY:DAT /FP /NDL /NS /NP /R:1 /NJH /NJS | 
 	
 	foreach {
 		if ($_) {
