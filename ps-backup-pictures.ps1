@@ -17,7 +17,8 @@ param(
    [string]$Destination
 )
 
-$counter = 0;
+$counter_new = 0;
+$counter_same = 0;
 
 Write-Host "Working..." -ForegroundColor "Green";
 
@@ -61,11 +62,30 @@ foreach {
 	$DateTaken=[datetime]::ParseExact($str,"yyyy:MM:dd HH:mm:ss`0",$Null);
 	$TargetPath = $Destination + "\" + $DateTaken.Year + "\" + $DateTaken.tostring("yyyy-MM-dd");
 
-	robocopy """$($file.DirectoryName)""" """$TargetPath""" """$($file.Name)""" /V /FP /NDL /NS /NP /R:1 /NJH /NJS | 
+	# ROBOCOPY
+	# By default, Changed, Newer and Older files will be considered to be candidates for copying. Same files (based on size) will be 
+	# skipped (not copied), and Extra and Mismatched files (and directories) will simply be reported in the output log.
+	# /V :: produce Verbose output, showing skipped files.
+	# /XC :: eXclude Changed files.
+	# /XN :: eXclude Newer files.
+	# /XO :: eXclude Older files.
+	# /IS :: Include Same files. ## Robocopy seems to only check the modification time, not creation time, so they have to be copied.
+	# /COPY:DAT :: D=Data, A=Attributes, T=Timestamps
+	# /FP :: include Full Pathname of files in the output.
+	# /NDL :: No Directory List - don't log directory names.
+	# /NS :: No Size - don't log file sizes.
+	# /NP :: No Progress - don't display percentage copied.
+	# /R:n :: number of Retries on failed copies: default 1 million.
+	# /NJH :: No Job Header.
+	# /NJS :: No Job Summary.
+
+	robocopy """$($file.DirectoryName)""" """$TargetPath""" """$($file.Name)""" /V /XC /XN /XO /IS /COPY:DAT /FP /NDL /NS /NP /R:1 /NJH /NJS | 
+	
 	foreach {
 		if ($_) {
 			$line = $_.TrimStart();
-			if ($line -like 'New File*') {Write-Verbose $line; $counter++;}
+			if ($line -like 'New File*') {Write-Verbose $line; $counter_new++;}
+			elseif ($line -like 'Same*') {Write-Verbose $line; $counter_same++;}
 			else {Write-Host $line  -ForegroundColor "Yellow";}
 		}
 	}
@@ -73,4 +93,4 @@ foreach {
 	$pic.Dispose();
 } 
 
-Write-Host "Finished copying $counter files!" -ForegroundColor "Green";
+Write-Host "Finished copying $counter_new new files, $counter_same identical files." -ForegroundColor "Green";
