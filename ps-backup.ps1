@@ -132,7 +132,7 @@ param(
    [Parameter(Mandatory=$true,
 			  ValueFromPipeline=$true,
 			  HelpMessage="Specifies the source path.")]
-   [string]$SourcePath,
+   [string][ValidateScript({Test-Path -LiteralPath $_})]$SourcePath,
    [Parameter(Mandatory=$false,
 			  ValueFromPipeline=$true,
 			  ParameterSetName="Backup",
@@ -171,7 +171,6 @@ param(
 # System Variables for backup Procedure
 ###############################################################
 $date = Get-Date -Format yyyy-MM-dd;
-$inclusion_file = $SourcePath.TrimEnd('\'); # wildcards can be used
 # $tmp_path = Join-Path -Path ($myinvocation.MyCommand.Definition | split-path -parent) -ChildPath "tmp"; #tmp path used for storing junction
 $tmp_path = "W:\tmp"; # tmp path used for storing junction
 $text_color_default = $host.ui.RawUI.ForegroundColor;
@@ -448,8 +447,12 @@ if ($Backup) {
 	if ( $hashtable.count -eq 0 ) { Write-Warning "No previous hashtables found. Hard-linking will only work between files copied during this backup."; }
 
 	# Read inclusion and exclusion list
-	assert {Test-Path -LiteralPath $SourcePath -Type leaf} "When used as Backup, the SourcePath should point to the inclusion file.";
-	$source_patterns = get-content $SourcePath | remove_comments | where {$_ -ne ""};
+	if (Test-Path -LiteralPath $SourcePath -Type leaf) { # The SourcePath is pointing to the inclusion file.
+		$source_patterns = get-content $SourcePath | remove_comments | where {$_ -ne ""};
+	} else {
+		assert {Test-Path -LiteralPath $SourcePath -Type Container} "The SourcePath is not a file, so it has to be a container.";
+		$source_patterns = $SourcePath.TrimEnd('\')  + '\*';
+	}
 	
 	if ($ExclusionFile) { $exclusion_patterns = get-content $ExclusionFile | remove_comments | where {$_ -ne ""}; }
 }
