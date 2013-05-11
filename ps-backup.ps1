@@ -211,11 +211,13 @@ Function Get-LongChildItem {
  
     begin {
 		$tmp_file = $tmp_path + '\' + 'files.txt';
+		$err_file = $tmp_path + '\' + 'err.txt';
     }
   
     process {
         foreach ($Path in $FolderPath) {
-			cmd /u /c """dir $Path /S /B /A > $tmp_file""";
+			cmd /u /c """dir $Path /S /B /A > $tmp_file 2> $err_file""";
+			if (Get-Content $err_file -Encoding UNICODE) {Write-Warning "Get-LongChildItem: $(Get-Content $err_file -Encoding UNICODE)";}
 			if (Test-Path -LiteralPath $tmp_file) {
 				Get-Content $tmp_file -Encoding UNICODE | foreach {$_.trim()} | foreach {if (($_) -and (Test-Path -LiteralPath (Shorten-Path $_ $tmp_path) -IsValid)) {$_} else {Write-Warning "PATH NOT VALID: $_"}}
 			}
