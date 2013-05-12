@@ -299,6 +299,43 @@ param(
    }
 }
 
+function Execute-Command {
+# Inspired by: http://www.pabich.eu/2010/06/generic-retry-logic-in-powershell.html
+[CmdletBinding()]
+param( 
+   [Parameter(Position=0, Mandatory=$true)]
+   [ScriptBlock]$Command,
+   [Parameter(Position=1, Mandatory=$true)]
+   [string]$CommandName,
+   [Parameter(Mandatory=$false)]
+   [int]$Retries=5,
+   [Parameter(Mandatory=$false)]
+   [int]$SleepSeconds=5
+)
+    $currentRetry = 0;
+    $success = $false;
+    do {
+        try { 
+            & $Command;
+            $success = $true;
+            Write-Debug "Successfully executed [$CommandName] command. Number of entries: $currentRetry";
+        } catch [System.Exception] {
+            Write-Warning "Exception occurred while trying to execute [$CommandName] command: $($_.ToString()) Retrying...";
+            if ($currentRetry -gt $Retries) {
+				Write-Warning "Can not execute [$CommandName] command. Aborting...";
+                throw $_;
+            } else {
+                Write-Debug "Sleeping before $currentRetry retry of [$CommandName] command";
+                Start-Sleep -s $SleepSeconds;
+            }
+            $currentRetry = $currentRetry + 1;
+        } catch {
+			Write-Warning "Unhandled exception in [$CommandName] command. Aborting...";
+			throw $_;
+		}
+    } while (!$success);
+}
+
 # Returns a shortened path made with junctions to circumvent 260 path length in win32 API and so PowerShell
 function Shorten-Path {
 	[CmdletBinding()]
@@ -597,7 +634,7 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 							# This should be a transaction: delete + make link.
 							assert {$file_existing.Exists} "File $($file_existing.FullName) doesn't exist... check code!";
 							assert {$file_existing.FullName -ne $source_file.FullName} "Source file $($source_file.FullName) and existing file $($file_existing.FullName) have the same paths! Check code.";
-							$source_file.Delete();
+							Execute-Command {$source_file.Delete()} "Delete $($source_file.FullName)" -SleepSeconds 60 -Retries 100;
 							# $source_file properties are cached, so we can reuse them.
 							$mklink_output = cmd /c mklink /H """$($source_file.FullName)""" """$($file_existing.FullName)""" 2>&1;
 							assert { $LASTEXITCODE -eq 0 } "Making hard link with $($source_file.FullName) on $($file_existing.FullName) failed with ERROR: $mklink_output.";
