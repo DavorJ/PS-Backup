@@ -176,7 +176,7 @@ $tmp_path = "W:\tmp"; # tmp path used for storing junction
 $text_color_default = $host.ui.RawUI.ForegroundColor;
 # $backup_path = $BackupRoot + '\' + $env:computername + '\' + $date; # hashtable-path depends on those two sub-dirs! 
 $backup_path = $BackupRoot + '\' + $date; # hashtable-path depends on those two sub-dirs! 
-$hashtable_name = "ps-backup-hashtable.txt";
+$hashtable_name = "ps-backup-hashtable.xml";
 
 # Variable declarations
 ###############################################################
