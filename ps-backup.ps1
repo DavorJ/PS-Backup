@@ -603,7 +603,7 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 							assert { $LASTEXITCODE -eq 0 } "Making hard link with $($source_file.FullName) on $($file_existing.FullName) failed with ERROR: $mklink_output.";
 							$deleted_bytes += $source_file.length;
 						}
-						" LINKED: $($original_file_path)";
+						Write-verbose " LINKED: $($original_file_path)";
 						$file_counter++;
 						$file_link_counter++;
 						assert { -not $copied_item } "Copied_item variable still remains from last job: might cause probs. Check code!"; 
@@ -612,7 +612,7 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 						Write-Warning "HASH EQUAL, BINARY MISMATCH: $($original_file_path) has same hash key as $($file_existing.FullName), but fails binary comparison!";
 						if ($Backup) {
 							$copied_item = copy_file $source_file.FullName $file_destination_path;				
-							Write-Output " COPIED (BINARY MISMATCH): $($original_file_path)";
+							Write-Verbose " COPIED (BINARY MISMATCH): $($original_file_path)";
 						}
 					}
 				} else { # Hash found, but modification times/attributes differ, so file should be copied, not hard linked.
@@ -620,13 +620,13 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 					Write-Warning "HASH EQUAL, ATTRIBUTE MISMATCH: $($original_file_path) has same hash key as $($file_existing.FullName), but fails attribute comparison! $($file_existing.CreationTimeUtc) $($source_file.CreationTimeUtc) $($file_existing.LastWriteTimeUtc) $($source_file.LastWriteTimeUtc) $($file_existing.attributes) $($source_file.attributes)";
 					if ($Backup) {
 						$copied_item = copy_file $source_file.FullName $file_destination_path;
-						Write-Output " COPIED (HASH EQUAL, ATTRIBUTE MISMATCH): $($original_file_path)";	
+						Write-Verbose " COPIED (HASH EQUAL, ATTRIBUTE MISMATCH): $($original_file_path)";	
 					}
 				}
 			} else { # Hash not found in previous versions, so file can be copied.
 				if ($Backup) {
 					$copied_item = copy_file $source_file.FullName $file_destination_path;
-					Write-Output " COPIED (NEW HASH): $($original_file_path)";
+					Write-Verbose " COPIED (NEW HASH): $($original_file_path)";
 				}
 			}
 		} else { # There is no old hastable, or the file is read only, or the source is a directory. 
@@ -635,11 +635,11 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 				if ($copied_item.PSIsContainer) {
 				} else {
 					if ($copied_item.IsReadOnly) {
-						Write-Output " COPIED (READONLY): $($original_file_path)";
+						Write-Verbose " COPIED (READONLY): $($original_file_path)";
 						$file_readonly_counter++;
 						$copied_readonly_bytes += $copied_item.length;
 					} else {
-						Write-Output " COPIED: $($original_file_path)";
+						Write-Verbose " COPIED: $($original_file_path)";
 					}
 				}
 			}
