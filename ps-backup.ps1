@@ -23,7 +23,8 @@
 ##
 ## TODO
 ## - ShadowVolume access: curently there seems to be no way to access the SV directly through PowerShell
-## - Create hard and soft links through .NET code via Add-Type: http://social.technet.microsoft.com/Forums/en-US/winserverpowershell/thread/01f8e50e-20fa-4e57-a76c-a15c929c0f4a/
+## - Create hard and soft links through .NET code via Add-Type: http://social.technet.microsoft.com/Forums/en-US/winserverpowershell/thread/01f8e50e-20fa-4e57-a76c-a15c929c0f4a/ and http://poshcode.org/3293
+
 ## - Require admin privileges to run, either whole script or parts where needed.
 ## - Store include and exlude lists in backup, and maybe a copy of the script for reference.
 ## - Write warning if a include command didn't result in any backup. Same for exclude command.
