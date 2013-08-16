@@ -1,46 +1,3 @@
-##########################################################################################
-## CHANGE LOG
-#########################
-## v0.5
-## - advanced parameter specification metadata added to script
-## - added new command set for making hashtables from directories: -MakeHashTable
-## 
-## v0.4
-## - hashes are now computed and stored per backup
-## - hard links are made based on hashes of old backups and binary comparison
-##
-## v0.3
-## - catching copy errors into a variable through common parameters
-## - copy-item rewritten with try/catch
-##
-## v0.2
-## - uses shadow copy on drives from where it copies files
-## - switch added: -delete-existing
-##
-## v0.1
-## - first version
-## - backup of data specified in $inclusion_file and $ExclusionFile
-##
-## TODO
-## - ShadowVolume access: curently there seems to be no way to access the SV directly through PowerShell
-## - Create hard and soft links through .NET code via Add-Type: http://social.technet.microsoft.com/Forums/en-US/winserverpowershell/thread/01f8e50e-20fa-4e57-a76c-a15c929c0f4a/ and http://poshcode.org/3293
-
-## - Require admin privileges to run, either whole script or parts where needed.
-## - Store include and exlude lists in backup, and maybe a copy of the script for reference.
-## - Write warning if a include command didn't result in any backup. Same for exclude command.
-## - Directory compare command set, based on hases.
-## - Keep directory modification dates.
-##
-## DISCUSSION
-#########################
-## - Soft links: are not an option. Deleting the source backup will make all other softlinks useless.
-## - Read-only files are never hard-linked. Deleting a backup with read-only hard-linked files will uncheck the read-only attribute for
-##   all the other linked files: http://msdn.microsoft.com/en-us/library/windows/desktop/aa365006(v=vs.85).aspx
-## - Compressing disks (and files?) on NTFS volumes has no effect on hard links: they are preserved. Still, compression and decompressing seems quite slow.
-## - Cluster size on disk: should be as small as possible because each hard link consumes one cluster? I think it is stored seperately in MFT, so it shouldn't be the case. Any references?
-##
-##########################################################################################
-
 ## .SYNOPSIS
 #########################
 ## This PowerShell script is for making versioned hard-linked backups from shadowed sources.
@@ -100,8 +57,24 @@
 ## In this example, all contents of "W:\Backups\Server" will be hardlinked. Also, a hashtable will be made.
 ##
 ## .NOTES
-## See Discussion comment.
-#########################
+## - Soft links: are not an option. Deleting the source backup will make all other softlinks useless.
+## - Read-only files are never hard-linked. Deleting a backup with read-only hard-linked files will uncheck the read-only attribute for
+##   all the other linked files: http://msdn.microsoft.com/en-us/library/windows/desktop/aa365006(v=vs.85).aspx
+## - Compressing disks (and files?) on NTFS volumes has no effect on hard links: they are preserved. Still, compression and decompressing seems quite slow.
+## - Cluster size on disk: should be as small as possible because each hard link consumes one cluster? I think it is stored seperately in MFT, so it shouldn't be the case. Any references?
+## 
+## TODO
+## - ShadowVolume access: curently there seems to be no way to access the SV directly through PowerShell
+## - Create hard and soft links through .NET code via Add-Type: http://social.technet.microsoft.com/Forums/en-US/winserverpowershell/thread/01f8e50e-20fa-4e57-a76c-a15c929c0f4a/ and http://poshcode.org/3293
+## - Require admin privileges to run, either whole script or parts where needed.
+## - Store include and exlude lists in backup, and maybe a copy of the script for reference.
+## - Write warning if a include command didn't result in any backup. Same for exclude command.
+## - Directory compare command set, based on hases.
+## - Keep directory modification dates.
+## - When Shadowed, the link is to shadowed tmp, and then to D,M, etc. = not good, because this structure is reflected in the backup also. Example: W:\tmp\W@GMT-2013.07.08-08.31.16\tmp\D@GMT-2013.07.08-08.30.38\Hardware\*
+## - Script should not backup the tmp directory. This should be excluded by default, otherwise loops may arise.
+##
+##########################################################################################
 
 [CmdletBinding()]
 param( 
