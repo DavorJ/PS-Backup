@@ -439,7 +439,7 @@ if ($Backup) {
 	}
 
 	# Making backup folder
-	Start-Sleep -s 1; # This makes sure that the assert will not trigger too quickly in some rare cases when a handle to the -DEB deleted backup exists...
+	Start-Sleep -s 1; # This makes sure that the assert will not trigger too quickly while still handles to the -DEB deleted backup exist...
 	assert { -not (Test-Path -LiteralPath $backup_path); } "Backup path exists when it should not! Check code!"; # Safety mechanism to not overwrite an existing backup!
 	New-Item -ItemType directory -Path $backup_path | Out-Null;
 
@@ -456,6 +456,9 @@ if ($Backup) {
 	}
 	
 	if ($ExclusionFile) { $exclusion_patterns = get-content $ExclusionFile | remove_comments | where {$_ -ne ""}; }
+	
+	# We add tmp_folder to the exclusion patterns
+	$exclusion_patterns = $exclusion_patterns, ($tmp_path +  '\*');
 }
 
 # Making hashtable from -LinkToDirectory path
