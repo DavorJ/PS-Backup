@@ -74,6 +74,7 @@
 ## - When Shadowed, the link is to shadowed tmp, and then to D,M, etc. = not good, because this structure is reflected in the backup also. Example: W:\tmp\W@GMT-2013.07.08-08.31.16\tmp\D@GMT-2013.07.08-08.30.38\Hardware\*
 ## - Script should not backup the tmp directory. This should be excluded by default, otherwise loops may arise.
 ## - add small function to create unique filenames, which can be deleted when not necessary on close.
+## - build some form of path check for include and exclude files --> if these dirs do not exist any more, it should be made clear.
 ##
 ##########################################################################################
 
@@ -155,7 +156,7 @@ $hashtable_name = "ps-backup-hashtable.xml";
 
 # Variable declarations
 ###############################################################
-$shadow = @{};
+$symlink_to_shadow = @{};
 $file_counter = 0;
 $file_link_counter = 0;
 $file_readonly_counter = 0;
@@ -497,13 +498,15 @@ if ($MakeHashTable -or $HardLinkContents) {
 }
 
 # For the source we use a shadow copy of the file. For that we keep
-# a hashtable of the drive letters and their corresponding symlinks in $shadow.
+# a hashtable of the drive letters and their corresponding symlinks in $symlink_to_shadow.
 if (-not $HardlinkContents -and (($Backup -or $MakeHashTable) -and -not $NotShadowed)) {
 	# First we make a small array of drive letters from the include_list.txt
 	$drives = $source_patterns |  where {$_} | Split-Path -Qualifier | Sort-Object -Unique | foreach {$_ -replace ':', ''} | where {$_};
 	# Then we create a shadow drive for each of the drive letters.
 	foreach ($drive in $drives) {
 		Write-Host "Making new shadow drive on partition $drive." -ForegroundColor Magenta;
+		
+		# To make a shadow copy of the drive, admin rights are needed. Maybe a code could be made to check for them and create concise error message?
 		$newShadowID = (Get-WmiObject -List Win32_ShadowCopy).Create($drive + ':\', "ClientAccessible").ShadowID;
 		assert {$newShadowID} "Shadowcopy not created. Admin rights given?";
 		$newShadow = Get-WmiObject -Class Win32_ShadowCopy -Filter "ID = '$newShadowID'";
@@ -514,14 +517,17 @@ if (-not $HardlinkContents -and (($Backup -or $MakeHashTable) -and -not $NotShad
 		# so we can not use it.
 		
 		$gmtDate = Get-Date -Date ([System.Management.Managementdatetimeconverter]::ToDateTime("$($newShadow.InstallDate)").ToUniversalTime()) -Format "'@GMT-'yyyy.MM.dd-HH.mm.ss";
-		$symlink = "$tmp_path\$drive$gmtDate";
-		$mklink_output = cmd /c mklink /D """$symlink""" """$($newShadow.DeviceObject)\""" 2>&1;
-		assert { $LASTEXITCODE -eq 0 } "Making link $symlink failed with ERROR: $mklink_output";
-		$shadow[$drive] = $symlink;				
+
+		assert { -not $symlink_to_shadow[$drive] } "Shadow link for drive letter $drive allready exists, when it should not.";
+		$symlink_to_shadow[$drive] = "$tmp_path\$drive$gmtDate";
+		
+		# Make symlink to shadow drive in tmp directory.
+		$mklink_output = cmd /c mklink /D """$($symlink_to_shadow[$drive])""" """$($newShadow.DeviceObject)\""" 2>&1;
+		assert { $LASTEXITCODE -eq 0 } "Making link $($symlink_to_shadow[$drive]) failed with ERROR: $mklink_output";
 		
 		# We adjust the include_list sources so they point to the appropriate shadowed drives. 
-		$source_patterns = $source_patterns -replace "$drive\:", $symlink;
-		$exclusion_patterns = $exclusion_patterns -replace "$drive\:", $symlink;
+		$source_patterns = $source_patterns -replace "$drive\:", $symlink_to_shadow[$drive];
+		$exclusion_patterns = $exclusion_patterns -replace "$drive\:", $symlink_to_shadow[$drive];
 	}
 }
 
@@ -533,6 +539,7 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 	foreach { if (Test-Path -LiteralPath ( Shorten-Path $_ $tmp_path)) {$_} } | 
 	foreach { if (Test-Path -LiteralPath ( Shorten-Path $_ $tmp_path) -Type Leaf) {Split-Path -Path $_ -Parent;} else {$_;} } |
 	Get-LongChildItem | Sort-Object -Unique | exclusion_filter)) {
+
 	# Attributes can also be used, like ReparsePoint: See http://msdn.microsoft.com/en-us/library/system.io.fileattributes(lightweight).aspx
 	# Select-Object -Unique is needed because Get-ChildItem might give duplicate paths, depending on the sources.
 
@@ -546,7 +553,7 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 	if ($NotShadowed -or $HardlinkContents) {
 			$original_file_path = $source_file_path;
 	} else {
-			$original_file_path = $source_file_path -replace [Regex]::Escape($shadow[$source_file.PSDrive.name]), "$($source_file.PSDrive):";
+			$original_file_path = $source_file_path -replace [Regex]::Escape($symlink_to_shadow[$source_file.PSDrive.name]), "$($source_file.PSDrive):";
 	}
 	
 	if ($Backup) {
@@ -704,13 +711,13 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 ###############################################################
 
 # cleanup links
-foreach ($link in ($shadow.Values + $junction.values)) {
+foreach ($link in ($symlink_to_shadow.Values + $junction.values)) {
 	# Remove-Item tries to delete recursively in the shadow dir for some strange reason... so it is not used.
 	# Remove-Item -Force -LiteralPath "$link";
 	$rmdir_error = cmd /c rmdir /q """$link""" 2>&1;
 	if ( $LASTEXITCODE -ne 0 ) { Write-Warning "Removing link $link failed with ERROR: $rmdir_error." };
 }
-$shadow.clear();
+$symlink_to_shadow.clear();
 $junction.clear();
 
 # save hashtable_new
