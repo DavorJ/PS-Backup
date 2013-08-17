@@ -73,6 +73,7 @@
 ## - Keep directory modification dates.
 ## - When Shadowed, the link is to shadowed tmp, and then to D,M, etc. = not good, because this structure is reflected in the backup also. Example: W:\tmp\W@GMT-2013.07.08-08.31.16\tmp\D@GMT-2013.07.08-08.30.38\Hardware\*
 ## - Script should not backup the tmp directory. This should be excluded by default, otherwise loops may arise.
+## - add small function to create unique filenames, which can be deleted when not necessary on close.
 ##
 ##########################################################################################
 
@@ -175,7 +176,8 @@ $md5 = new-object -TypeName System.Security.Cryptography.MD5CryptoServiceProvide
 ###############################################################
 Function Get-LongChildItem {
 # Long paths with robocopy: http://www.powershellmagazine.com/2012/07/24/jaap-brassers-favorite-powershell-tips-and-tricks/
-# I used the copde to build a wrapperlike Get-ChildItem cmdlet.
+# I used the code to build a wrapperlike Get-ChildItem cmdlet.
+# Robocopy doesn't work that well in outputting unicode, so I eventually switched to simple unicode dir command.
 	param(
        [CmdletBinding()]
        [Parameter(Position=0,Mandatory=$true,ValueFromPipeline=$true, ValueFromPipelineByPropertyName=$true)]
@@ -423,23 +425,23 @@ function Make-HashTableFromXML ([string] $path, [System.Collections.Hashtable] $
 	}
 }
 
+# Start code execution
+###############################################################
+
 # Making temp dir
 if (-not (Test-Path -LiteralPath $tmp_path)) {
 	New-Item -ItemType directory -Path $tmp_path | Out-Null;
 }
 
-# Preparing system
-###############################################################
 if ($Backup) {
 	if ( -not (Test-Path ($BackupRoot + '\*')) ) {
-		Write-Warning "First time backup. Make sure to set the security descriptors right: only read rights for specific users, admins have full rights.";
+		Write-Warning "First time backup. Make sure to set the security descriptors right: only read rights for specific users, admins and backup user should have full rights.";
 	}
 
 	if (Test-Path -LiteralPath $backup_path) {
 		if ($DeleteExistingBackup) {
 			# DELETE PREVIOUS BACKUP if it exists.
-			# Remove-Item -Force -Confirm: $false -Recurse -Path $backup_path; can not be used because it is bugged:
-			# http://stackoverflow.com/questions/1752677/how-to-recursively-delete-an-entire-directory-with-powershell-2-0
+			# ( Remove-Item -Force -Confirm: $false -Recurse -Path $backup_path; can not be used because it is bugged: http://stackoverflow.com/questions/1752677/how-to-recursively-delete-an-entire-directory-with-powershell-2-0 )
 			$rmdir_error = cmd /c rmdir /S /Q """$backup_path""" 2>&1 | Out-Null;
 			assert { $LASTEXITCODE -eq 0 } "Removing old backup failed with ERROR: $rmdir_error.";
 			Write-Warning "Old backup deleted!";
@@ -450,7 +452,7 @@ if ($Backup) {
 	}
 
 	# Making backup folder
-	assert { -not (Test-Path -LiteralPath $backup_path); } "Backup path exists when it should not! Check code!";
+	assert { -not (Test-Path -LiteralPath $backup_path); } "Backup path exists when it should not! Check code!"; # Safety mechanism to not overwrite an existing backup!
 	New-Item -ItemType directory -Path $backup_path | Out-Null;
 
 	# Making hashtable from previous backups
@@ -496,7 +498,7 @@ if ($MakeHashTable -or $HardLinkContents) {
 
 # For the source we use a shadow copy of the file. For that we keep
 # a hashtable of the drive letters and their corresponding symlinks in $shadow.
-# We also make a shadow on the $BackupRoot so we can revert if somehing goes wrong.
+# We also make a shadow on the $BackupRoot so we can revert if somehing goes wrong. (This really necessary??)
 if (-not $HardlinkContents -and (($Backup -or $MakeHashTable) -and -not $NotShadowed)) {
 	# First we make a small array of drive letters from the include_list.txt
 	$drives = ($source_patterns, $BackupRoot) |  where {$_} | Split-Path -Qualifier | Sort-Object -Unique | foreach {$_ -replace ':', ''} | where {$_};
