@@ -439,6 +439,7 @@ if ($Backup) {
 	}
 
 	# Making backup folder
+	Start-Sleep -s 1; # This makes sure that the assert will not trigger too quickly in some rare cases when a handle to the -DEB deleted backup exists...
 	assert { -not (Test-Path -LiteralPath $backup_path); } "Backup path exists when it should not! Check code!"; # Safety mechanism to not overwrite an existing backup!
 	New-Item -ItemType directory -Path $backup_path | Out-Null;
 
@@ -483,11 +484,12 @@ if ($MakeHashTable -or $HardLinkContents) {
 	$source_patterns = $SourcePath + '\*';
 }
 
-# For the source we use a shadow copy of the file. For that we keep
-# a hashtable of the drive letters and their corresponding symlinks in $symlink_to_shadow.
-if (-not $HardlinkContents -and (($Backup -or $MakeHashTable) -and -not $NotShadowed)) {
+if (-not $HardlinkContents -and (($Backup -or $MakeHashTable) -and -not $NotShadowed)) { # This is run in case a shadow volume is used.
+	# We translate here the source and exclusion_patterns to point to the shadow volume instead of original locations.
+
 	# First we make a small array of drive letters from the include_list.txt
 	$drives = $source_patterns |  where {$_} | Split-Path -Qualifier | Sort-Object -Unique | foreach {$_ -replace ':', ''} | where {$_};
+	
 	# Then we create a shadow drive for each of the drive letters.
 	foreach ($drive in $drives) {
 		Write-Host "Making new shadow drive on partition $drive." -ForegroundColor Magenta;
@@ -512,8 +514,20 @@ if (-not $HardlinkContents -and (($Backup -or $MakeHashTable) -and -not $NotShad
 		assert { $LASTEXITCODE -eq 0 } "Making link $($symlink_to_shadow[$drive]) failed with ERROR: $mklink_output";
 		
 		# We adjust the include_list sources so they point to the appropriate shadowed drives. 
-		$source_patterns = $source_patterns -replace "$drive\:", $symlink_to_shadow[$drive];
-		$exclusion_patterns = $exclusion_patterns -replace "$drive\:", $symlink_to_shadow[$drive];
+		$source_patterns = $source_patterns | foreach { 
+			if ($_ -Match [string]::join("|", ($symlink_to_shadow.Values | foreach {[RegEx]::Escape($_)}))) { # pattern allready adjusted!
+				$_;
+			} else {
+				$_ -replace "$drive\:", $symlink_to_shadow[$drive];
+			} 
+		};
+		$exclusion_patterns = $exclusion_patterns | foreach {
+			if ($_ -Match [string]::join("|", ($symlink_to_shadow.Values | foreach {[RegEx]::Escape($_)}))) { # pattern allready adjusted!
+				$_;
+			} else {
+				$_ -replace "$drive\:", $symlink_to_shadow[$drive];
+			} 
+		};
 	}
 }
 
@@ -537,10 +551,18 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 	assert {$source_file.FullName -eq (Shorten-Path $source_file_path $tmp_path)} "Paths not the same: $($source_file.FullName) not equal to $(Shorten-Path $source_file_path $tmp_path). Might cause problems. Check code.";
 	
 	if ($NotShadowed -or $HardlinkContents) {
-			$original_file_path = $source_file_path;
+		$original_file_path = $source_file_path;
 	} else {
-			$original_file_path = $source_file_path -replace [Regex]::Escape($symlink_to_shadow[$source_file.PSDrive.name]), "$($source_file.PSDrive):";
+		# extract original file path from shadowed path.
+		$original_file_path = $symlink_to_shadow.values | foreach {
+			if ($source_file_path -match [Regex]::Escape($_)) {
+				$symlink = $_;
+				$source_file_path -replace [Regex]::Escape($_), (($symlink_to_shadow.GetEnumerator() | ? {$_.Value -eq $symlink;}).Key + ":");
+			}
+		}
+		assert {Test-Path -Path $original_file_path} "Original path $original_file_path seems invalid. Check code!";
 	}
+	assert {$original_file_path} "Original path for $source_file_path not set.";
 	
 	if ($Backup) {
 		# We build the backup destination path.
@@ -549,7 +571,7 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 		# New-PSDrive is useless here because it doesn't really shorten the path like cmd subst does. It just obfurscates the real
 		# length of the path. So we test the real paths first. 
 		# Shorten-Path function reduces the path length by making symlinks.
-		$file_destination_relative_path = '\' + $source_file.PSDrive.name + (Split-Path -NoQualifier -Path $original_file_path);
+		$file_destination_relative_path = '\' + ((Split-Path -Qualifier $original_file_path) -replace ':', '') + (Split-Path -NoQualifier -Path $original_file_path);
 		assert {$BackupRoot} "BackupRoot not set.";
 		$file_destination_path = Shorten-Path ($backup_path + $file_destination_relative_path) $tmp_path;
 		$file_destination_parent_path = Split-Path -Parent -Path $file_destination_path;
