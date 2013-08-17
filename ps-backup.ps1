@@ -739,8 +739,7 @@ if ($Backup) {
 } 
 if ($MakeHashTable -or $HardlinkContents) {
 	Export-Clixml -Path "$SourcePath\$hashtable_name" -InputObject $hashtable_new;
-	if ($exclusion_patterns) {Write-Output $exclusion_patterns > "$($SourcePath)\exclusion_patterns.txt";}
-	if ($source_patterns) {Write-Output $source_patterns > "$($SourcePath)\source_patterns.txt";}
+	if ($exclusion_patterns) {Write-Output $exclusion_patterns > "$($SourcePath)\hash_exclusion_patterns.txt";}
 }
 
 # Summary
