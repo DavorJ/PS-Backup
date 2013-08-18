@@ -388,28 +388,30 @@ function copy_file ([string] $source, [string] $destination ) {
 }
 
 # Make hashtable from stored xml files
-function Make-HashTableFromXML ([string] $path, [System.Collections.Hashtable] $hash, [string] $hashtable_name) {
+function Make-HashTableFromXML ([string] $path, [System.Collections.Hashtable] $hash, [string] $hashtable_name, [switch] $rigorous) {
 	# Hash tables are reference tyes, so no need to pass by reference.
 	Get-ChildItem -Path $path -Filter $hashtable_name -Recurse -Force -ErrorAction SilentlyContinue | 
 	foreach {
 		$wrong_ref = 0;
 		$file_parent = Split-Path -Parent $_.FullName;
 		Write-Host "Importing hashtable from $($_.FullName)" -ForegroundColor Blue;
+		$stopwatch = [System.Diagnostics.Stopwatch]::StartNew();
 		(Import-Clixml $_.FullName).GetEnumerator() | 
 		foreach { 
 			if (-not $hash[$_.Key]) {
 				# In the $hash the values should be absolute paths to files!
 				$abs_path = $file_parent + $_.Value;
-				if (Test-Path -LiteralPath (Shorten-Path $abs_path $tmp_path) -Type Leaf) {
+				if (-not $rigorous -or (Test-Path -LiteralPath (Shorten-Path $abs_path $tmp_path) -Type Leaf)) {
 					$hash[$_.Key] = $abs_path;
 				} else {
-					Write-Verbose "Hash reference to $abs_path: file doesn't exist.."; 
+					Write-Verbose "Hash reference to $($abs_path): file doesn't exist.."; 
 					"$(Get-Date) $abs_path reference in hashfile $file_parent\$hashtable_name doesn't exist on disk." | Out-File -FilePath ($tmp_path + '\wrong_ref.txt') -Append;
 					$wrong_ref++;
 				}
 			}
 		}
 		if ($wrong_ref -ne 0) {Write-Warning "Hashfile $($_.FullName) has $wrong_ref wrong references. Check wrong_ref.txt Consider rebuilding the hashfile with -MakeHashTable switch.";}
+		Write-Verbose "Imported in $($stopwatch.Elapsed.ToString())";
 	}
 }
 
@@ -604,7 +606,7 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 	if ($Backup -or $HardlinkContents) {
 		# Following if's are cases which it might be possible to make a hard link. If they fail, the file is copied.
 		if (($hashtable.count -ne 0) -and (-not $source_file.PSIsContainer) -and (-not $source_file.IsReadOnly)) {
-			if ($hashtable.ContainsKey($hash_shadow) -and (Test-Path -LiteralPath (Shorten-Path $hashtable[$hash_shadow] $tmp_path) -PathType Leaf)) {
+			if ($hashtable.ContainsKey($hash_shadow) -and ( &{if (Test-Path -LiteralPath (Shorten-Path $hashtable[$hash_shadow] $tmp_path) -PathType Leaf) {$true} else {Write-Warning "Hash $hash_shadow refers to nonexisting file: $($hashtable[$hash_shadow])."; $false;}} ) ) { # This warning should never be raised if $hashtable is made with "rigorous" switch.
 				$file_existing = New-Object System.IO.FileInfo(Shorten-Path $hashtable[$hash_shadow] $tmp_path);
 				if (($file_existing.LastWriteTimeUtc -eq $source_file.LastWriteTimeUtc) -and 
 					($file_existing.CreationTimeUtc -eq $source_file.CreationTimeUtc) -and 
@@ -653,7 +655,7 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 						Write-Verbose " COPIED (HASH EQUAL, ATTRIBUTE MISMATCH): $($original_file_path)";	
 					}
 				}
-			} else { # Hash not found in previous versions, so file can be copied.
+			} else { # Hash not found in previous versions or hash found but the file dosn't exist, so file can be copied.
 				if ($Backup) {
 					$copied_item = copy_file $source_file.FullName $file_destination_path;
 					Write-Verbose " COPIED (NEW HASH): $($original_file_path)";
