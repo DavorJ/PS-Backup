@@ -404,11 +404,12 @@ function Make-HashTableFromXML ([string] $path, [System.Collections.Hashtable] $
 					$hash[$_.Key] = $abs_path;
 				} else {
 					Write-Verbose "Hash reference to $abs_path: file doesn't exist.."; 
+					"$(Get-Date) $abs_path reference in hashfile $file_parent\$hashtable_name doesn't exist on disk." | Out-File -FilePath ($tmp_path + '\wrong_ref.txt') -Append;
 					$wrong_ref++;
 				}
 			}
 		}
-		if ($wrong_ref -ne 0) {Write-Warning "Hashfile $($_.FullName) has $wrong_ref wrong references. Consider rebuilding the hashfile with -MakeHashTable switch.";}
+		if ($wrong_ref -ne 0) {Write-Warning "Hashfile $($_.FullName) has $wrong_ref wrong references. Check wrong_ref.txt Consider rebuilding the hashfile with -MakeHashTable switch.";}
 	}
 }
 
@@ -563,9 +564,8 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 				$source_file_path -replace [Regex]::Escape($_), (($symlink_to_shadow.GetEnumerator() | ? {$_.Value -eq $symlink;}).Key + ":");
 			}
 		}
-		assert {Test-Path -Path $original_file_path} "Original path $original_file_path seems invalid. Check code!";
 	}
-	assert {$original_file_path} "Original path for $source_file_path not set.";
+	assert {Test-Path -LiteralPath $original_file_path -IsValid} "Original path $original_file_path for $source_file_path not set or not valid.";
 	
 	if ($Backup) {
 		# We build the backup destination path.
