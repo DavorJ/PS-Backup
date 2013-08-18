@@ -565,7 +565,7 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 			}
 		}
 	}
-	assert {Test-Path -LiteralPath $original_file_path -IsValid} "Original path $original_file_path for $source_file_path not set or not valid.";
+	assert {$original_file_path} "Original path $original_file_path for $source_file_path not set."; # Can not do Test-Path -IsValid because the path might be too long.
 	
 	if ($Backup) {
 		# We build the backup destination path.
