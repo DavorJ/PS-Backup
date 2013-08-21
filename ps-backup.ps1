@@ -34,6 +34,8 @@
 ## Source files are shadows of the originals. That is the default.
 ## .PARAMETER LinkToDirectory
 ## This will explicitely scan the directory prior to backup. It may take quite some time.
+## .PARAMETER Verify
+## In this mode the script will compare hashtable references with their file hashes. This is a means for detecting potential backup problems.
 ##
 ## .EXAMPLE
 ## .\ps-backup.ps1 -Backup -SourcePath ".\include_list.txt" -BackupRoot "W:\Backups\Server"
@@ -127,7 +129,13 @@ param(
  			  ParameterSetName="HardLinkContents",
 			  ValueFromPipeline=$false,
 			  HelpMessage="Here you can specify a hashtable to link to, or a dir with hashtables.")]
-   [string][ValidateScript({Test-Path -LiteralPath $_})]$LinkToHashtables
+   [string][ValidateScript({Test-Path -LiteralPath $_})]$LinkToHashtables,
+   [Parameter(Mandatory=$true,
+			  Position=0,	
+			  ParameterSetName="Verify",
+			  ValueFromPipeline=$false,
+			  HelpMessage="Verifies the hash table references.")]
+   [switch]$Verify=$false
 )
 
 # System Variables for backup Procedure
@@ -161,6 +169,17 @@ $md5 = new-object -TypeName System.Security.Cryptography.MD5CryptoServiceProvide
 
 # Functions
 ###############################################################
+function CleanUp-Links {
+	foreach ($link in ($symlink_to_shadow.Values + $junction.values)) {
+		# Remove-Item tries to delete recursively in the shadow dir for some strange reason... so it is not used.
+		# Remove-Item -Force -LiteralPath "$link";
+		$rmdir_error = cmd /c rmdir /q """$link""" 2>&1;
+		if ( $LASTEXITCODE -ne 0 ) { Write-Warning "Removing link $link failed with ERROR: $rmdir_error." };
+	}
+	$symlink_to_shadow.clear();
+	$junction.clear();
+}
+
 function Compute-Hash {
 	param(
        [CmdletBinding()]
@@ -441,6 +460,34 @@ function Make-HashTableFromXML ([string] $path, [System.Collections.Hashtable] $
 # Making temp dir
 if (-not (Test-Path -LiteralPath $tmp_path)) {
 	New-Item -ItemType directory -Path $tmp_path | Out-Null;
+}
+
+if ($Verify) {
+	Get-ChildItem -Path $SourcePath -Filter $hashtable_name -Recurse -Force -ErrorAction SilentlyContinue | 
+	foreach {
+		$nonequal_hash = 0;
+		$equal_hash = 0;
+		$file_notexistant = 0;
+		$file_parent = Split-Path -Parent $_.FullName;
+		Write-Host "Verifying hashtable from $($_.FullName)" -ForegroundColor Blue;
+		$stopwatch = [System.Diagnostics.Stopwatch]::StartNew();
+		(Import-Clixml $_.FullName).GetEnumerator() | 
+		foreach {
+			$file = Get-Item -Force -LiteralPath (Shorten-Path ($file_parent + $_.Value) $tmp_path) -ErrorAction SilentlyContinue;
+			if (-not $file) {
+				Write-Host "Referenced file $($file_parent + $_.Value) doesn't exist."; 	
+				$file_notexistant++;
+			} elseif (($computed_hash = Compute-Hash $file $md5) -ne $_.key) {
+				Write-Host "Computed hash not equal to stored hash for file $($file_parent + $_.Value)."; 
+				$nonequal_hash++;
+			} else {$equal_hash++;}
+		}
+		Write-Host "Verification complete: $equal_hash hashes correct, $nonequal_hash not correct, and $file_notexistant missing." -ForegroundColor (&{if (($nonequal_hash -eq 0) -and ($file_notexistant -eq 0)) {"Green"} else {"Red"} });
+		Write-Verbose "Verification completed in $($stopwatch.Elapsed.ToString())";
+	}
+	
+	CleanUp-Links;
+	Exit 0;
 }
 
 if ($Backup) {
@@ -736,15 +783,7 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 # Finishing jobs
 ###############################################################
 
-# cleanup links
-foreach ($link in ($symlink_to_shadow.Values + $junction.values)) {
-	# Remove-Item tries to delete recursively in the shadow dir for some strange reason... so it is not used.
-	# Remove-Item -Force -LiteralPath "$link";
-	$rmdir_error = cmd /c rmdir /q """$link""" 2>&1;
-	if ( $LASTEXITCODE -ne 0 ) { Write-Warning "Removing link $link failed with ERROR: $rmdir_error." };
-}
-$symlink_to_shadow.clear();
-$junction.clear();
+CleanUp-Links;
 
 # save hashtable_new
 if ($Backup) {
