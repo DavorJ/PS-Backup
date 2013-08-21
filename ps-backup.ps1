@@ -161,6 +161,26 @@ $md5 = new-object -TypeName System.Security.Cryptography.MD5CryptoServiceProvide
 
 # Functions
 ###############################################################
+function Compute-Hash {
+	param(
+       [CmdletBinding()]
+       [Parameter(Position=0, Mandatory=$true)]
+       [System.IO.FileInfo]$file,
+       [Parameter(Position=1, Mandatory=$true)]
+       [System.Security.Cryptography.HashAlgorithm]$provider
+	) 
+ 
+	$stream = $file.OpenRead();
+	$hash = $provider.ComputeHash($stream);
+	$hash += [System.BitConverter]::GetBytes($file.LastWriteTimeUtc.GetHashCode());
+	$hash += [System.BitConverter]::GetBytes($file.CreationTimeUtc.GetHashCode());
+	$hash += [System.BitConverter]::GetBytes($file.attributes -match "Hidden");
+	$stream.Dispose();
+	
+	# [System.BitConverter]::ToString($hash);
+	return [System.BitConverter]::ToString($provider.ComputeHash($hash));
+}	
+
 Function Get-LongChildItem {
 # Long paths with robocopy: http://www.powershellmagazine.com/2012/07/24/jaap-brassers-favorite-powershell-tips-and-tricks/
 # I used the code to build a wrapperlike Get-ChildItem cmdlet.
@@ -592,14 +612,7 @@ if ($Backup) {"Backing up files..."} elseif ($MakeHashTable) {"Making hashtable.
 
 	# Compute hash of shadow and store it in hash_shadow variable
 	if ((-not $source_file.PSIsContainer) -and (-not $source_file.IsReadOnly)) { # Folders and Read-only files (see discussion for reasons) are never hard-linked, so no need for making hashes of them.
-		$stream_shadow = $source_file.OpenRead();
-		$hash = $md5.ComputeHash($stream_shadow);
-		$hash += [System.BitConverter]::GetBytes($source_file.LastWriteTimeUtc.GetHashCode());
-		$hash += [System.BitConverter]::GetBytes($source_file.CreationTimeUtc.GetHashCode());
-		$hash += [System.BitConverter]::GetBytes($source_file.attributes -match "Hidden");
-		# $hash_shadow = [System.BitConverter]::ToString($hash);
-		$hash_shadow = [System.BitConverter]::ToString($md5.ComputeHash($hash));
-		$stream_shadow.Dispose();
+		$hash_shadow = Compute-Hash $source_file $md5;
 	}
 	
 	# Copy or hard link procedure.
